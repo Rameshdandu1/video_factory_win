@@ -4,13 +4,13 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. The frontend and production Wan2.1 model configuration remain intentionally undecided until recorded in ADRs.
+The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. It also contains an external-process Wan2.1 worker adapter pinned and tested without a GPU. GPU qualification, the frontend, and the production checkpoint choice remain outstanding.
 
 ## Intended architecture
 
-The app will call Wan2.1 through a narrow generation-backend interface. Web/API code, job orchestration, and storage should remain independent of Wan2.1 so the model runtime can run in a dedicated GPU process or worker.
+The app calls Wan2.1 through a narrow generation-backend interface. Web/API code, job orchestration, and storage remain independent of Wan2.1 so the model runtime runs in a dedicated GPU worker process.
 
-Wan2.1 currently requires Python 3.10+, PyTorch 2.4+, and model-specific checkpoints. Record an exact upstream commit when integration begins; do not rely on a moving branch.
+The adapter requires a separate operator-managed Wan2.1 checkout, Python/CUDA environment, and checkpoint directory. Application code is pinned to Wan2.1 commit `9737cba9c1c3c4d04b33fcad41c111989865d315`; it never follows a moving branch. See [Wan2.1 Runtime Specification v1](docs/specifications/wan21-runtime-v1.md) for the model pins and runtime procedure.
 
 ## Repository policy
 
@@ -85,6 +85,18 @@ Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive AP
 
 The API only validates, persists, lists, cancels, and serves jobs. Generation is never run in the API process. Stop either process with `Ctrl+C`.
 
+## Run the pinned Wan2.1 worker
+
+Keep the fake backend for normal development and CI. To opt into real generation, first prepare a separate Wan2.1 checkout, matching checkpoint, and GPU Python environment as described in [Wan2.1 Runtime Specification v1](docs/specifications/wan21-runtime-v1.md). Then change `VIDEO_APP_BACKEND` to `wan21`, add all five `VIDEO_APP_WAN21_*` values shown in [.env.example](.env.example), and make the configured model capability match the selected task.
+
+If you want to use one worker cycle to validate configuration, first confirm through the jobs API that the queue contains no queued jobs, then run:
+
+```powershell
+.\.venv\Scripts\video-app-worker.exe --env-file .env --once
+```
+
+`--once` is not a dry run. It performs recovery and one claim attempt, so it will execute one queued generation if a job is available. The adapter rejects an unpinned or dirty checkout, a mismatched model revision, unsupported capabilities, and invalid runtime paths at worker startup. The API does not load Wan2.1. Real generation still requires the explicit marked GPU smoke test before this runtime is treated as qualified.
+
 ## Next milestone
 
-Pin a tested Wan2.1 revision and implement its isolated worker adapter without changing the API contract.
+Run and record the pinned Wan2.1 GPU smoke test on the target Windows/CUDA hardware, verify cancellation cleanup, and lock the external runtime dependency set. This does not change the public API contract.

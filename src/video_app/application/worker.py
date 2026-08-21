@@ -18,9 +18,17 @@ from video_app.domain.jobs import GenerationJob
 from video_app.domain.models import BackendOutput, ErrorCode, Failure, Progress
 from video_app.domain.ports import (
     BackendCancelledError,
+    BackendFailureError,
     GenerationBackend,
     GenerationContext,
 )
+
+_SAFE_BACKEND_FAILURE_MESSAGES = {
+    ErrorCode.UNSUPPORTED_PARAMETERS: "The selected model does not support these settings.",
+    ErrorCode.MODEL_UNAVAILABLE: "The configured video model is unavailable.",
+    ErrorCode.INSUFFICIENT_RESOURCES: "The worker has insufficient resources for this job.",
+    ErrorCode.GENERATION_FAILED: "Video generation failed.",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,11 +73,18 @@ class ProcessNextJob:
             progress=progress,
         )
 
-    def _failure(self, lease: JobLease, code: ErrorCode, message: str) -> Failure:
+    def _failure(
+        self,
+        lease: JobLease,
+        code: ErrorCode,
+        message: str,
+        *,
+        retryable: bool = True,
+    ) -> Failure:
         return Failure(
             code=code,
             message=message,
-            retryable=True,
+            retryable=retryable,
             job_id=lease.job.id,
             correlation_id=self.identifiers.new_correlation_id(),
         )
@@ -128,6 +143,14 @@ class ProcessNextJob:
             output = generation_task.result()
         except BackendCancelledError:
             return await self.repository.confirm_cancelled(active_lease, self.clock.now())
+        except BackendFailureError as error:
+            failure = self._failure(
+                active_lease,
+                error.code,
+                _SAFE_BACKEND_FAILURE_MESSAGES.get(error.code, "Video generation failed."),
+                retryable=error.retryable,
+            )
+            return await self.repository.fail(active_lease, failure, self.clock.now())
         except LeaseLostError:
             raise
         except Exception:

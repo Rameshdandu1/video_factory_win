@@ -26,6 +26,7 @@ from video_app.application.use_cases import (
 )
 from video_app.application.worker import ProcessNextJob
 from video_app.backends.fake import FakeBackend
+from video_app.domain.ports import GenerationBackend
 from video_app.infrastructure.database import create_database_engine
 from video_app.infrastructure.postgres_jobs import PostgresJobRepository
 from video_app.infrastructure.runtime import (
@@ -99,9 +100,30 @@ def create_api_app_from_environment() -> FastAPI:
     return create_api_app(RuntimeSettings.from_environment())
 
 
+def _build_generation_backend(
+    settings: RuntimeSettings,
+    temporary_root: Path,
+) -> GenerationBackend:
+    if settings.backend_name == "fake":
+        return FakeBackend(temporary_root, (settings.capability,))
+    if settings.backend_name == "wan21" and settings.wan21 is not None:
+        from video_app.backends.wan21 import Wan21Backend
+
+        return Wan21Backend(
+            repository_root=settings.wan21.repository_root,
+            checkpoint_dir=settings.wan21.checkpoint_dir,
+            python_executable=settings.wan21.python_executable,
+            output_root=temporary_root,
+            task=settings.wan21.task,
+            model_revision=settings.wan21.model_revision,
+            model_capabilities=(settings.capability,),
+        )
+    raise RuntimeError("generation backend settings are inconsistent")
+
+
 def build_worker(settings: RuntimeSettings) -> tuple[WorkerRunner, AsyncEngine]:
     runtime = build_runtime(settings)
-    backend = FakeBackend(runtime.temporary_root, (settings.capability,))
+    backend = _build_generation_backend(settings, runtime.temporary_root)
     process_next = ProcessNextJob(
         repository=runtime.repository,
         artifacts=runtime.artifacts,

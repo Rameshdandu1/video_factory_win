@@ -74,6 +74,30 @@ def _read_environment_file(path: Path) -> dict[str, str]:
 
 
 @dataclass(frozen=True, slots=True)
+class Wan21RuntimeSettings:
+    """Worker-only paths and pins for the external Wan2.1 runtime."""
+
+    repository_root: Path
+    checkpoint_dir: Path
+    python_executable: Path
+    task: str
+    model_revision: str
+
+    def __post_init__(self) -> None:
+        for path, field in (
+            (self.repository_root, "VIDEO_APP_WAN21_REPOSITORY_ROOT"),
+            (self.checkpoint_dir, "VIDEO_APP_WAN21_CHECKPOINT_DIR"),
+            (self.python_executable, "VIDEO_APP_WAN21_PYTHON"),
+        ):
+            if not path.is_absolute():
+                raise ValueError(f"{field} must be absolute")
+        if not self.task or self.task.isspace():
+            raise ValueError("VIDEO_APP_WAN21_TASK must not be empty")
+        if not self.model_revision or self.model_revision.isspace():
+            raise ValueError("VIDEO_APP_WAN21_MODEL_REVISION must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeSettings:
     database: DatabaseSettings
     data_root: Path
@@ -84,6 +108,7 @@ class RuntimeSettings:
     heartbeat_interval: timedelta
     poll_interval_seconds: float
     backend_name: str
+    wan21: Wan21RuntimeSettings | None
 
     def __post_init__(self) -> None:
         if not self.data_root.is_absolute():
@@ -100,8 +125,10 @@ class RuntimeSettings:
             raise ValueError("heartbeat_interval must be less than one third of lease_duration")
         if self.poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
-        if self.backend_name != "fake":
-            raise ValueError("only the fake backend is available in this runtime")
+        if self.backend_name not in {"fake", "wan21"}:
+            raise ValueError("VIDEO_APP_BACKEND must be fake or wan21")
+        if (self.backend_name == "wan21") != (self.wan21 is not None):
+            raise ValueError("Wan2.1 settings must be present only for the wan21 backend")
 
     @classmethod
     def from_environment(cls) -> RuntimeSettings:
@@ -115,6 +142,20 @@ class RuntimeSettings:
     def from_values(cls, values: Mapping[str, str]) -> RuntimeSettings:
         data_root = Path(_required(values, "VIDEO_APP_DATA_ROOT"))
         cursor_secret = _required(values, "VIDEO_APP_CURSOR_SECRET").encode("utf-8")
+        backend_name = _required(values, "VIDEO_APP_BACKEND")
+        if backend_name not in {"fake", "wan21"}:
+            raise ValueError("VIDEO_APP_BACKEND must be fake or wan21")
+        wan21 = (
+            Wan21RuntimeSettings(
+                repository_root=Path(_required(values, "VIDEO_APP_WAN21_REPOSITORY_ROOT")),
+                checkpoint_dir=Path(_required(values, "VIDEO_APP_WAN21_CHECKPOINT_DIR")),
+                python_executable=Path(_required(values, "VIDEO_APP_WAN21_PYTHON")),
+                task=_required(values, "VIDEO_APP_WAN21_TASK"),
+                model_revision=_required(values, "VIDEO_APP_WAN21_MODEL_REVISION"),
+            )
+            if backend_name == "wan21"
+            else None
+        )
         capability = ModelCapability(
             model_id=_required(values, "VIDEO_APP_MODEL_ID"),
             display_name=_required(values, "VIDEO_APP_MODEL_DISPLAY_NAME"),
@@ -133,7 +174,8 @@ class RuntimeSettings:
                 seconds=_positive_int(values, "VIDEO_APP_HEARTBEAT_SECONDS", 10)
             ),
             poll_interval_seconds=float(_positive_int(values, "VIDEO_APP_POLL_SECONDS", 2)),
-            backend_name=_required(values, "VIDEO_APP_BACKEND"),
+            backend_name=backend_name,
+            wan21=wan21,
         )
 
 

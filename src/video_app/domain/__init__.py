@@ -15,10 +15,16 @@ from video_app.domain.models import (
     Resolution,
     normalize_request,
 )
-from video_app.domain.ports import BackendCancelledError, GenerationBackend, GenerationContext
+from video_app.domain.ports import (
+    BackendCancelledError,
+    BackendFailureError,
+    GenerationBackend,
+    GenerationContext,
+)
 
 __all__ = [
     "BackendCancelledError",
+    "BackendFailureError",
     "BackendOutput",
     "DomainValidationError",
     "ErrorCode",

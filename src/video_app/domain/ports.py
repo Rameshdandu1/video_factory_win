@@ -8,6 +8,7 @@ from typing import Protocol, runtime_checkable
 
 from video_app.domain.models import (
     BackendOutput,
+    ErrorCode,
     GenerationRequest,
     ModelCapability,
     Progress,
@@ -19,6 +20,26 @@ CancellationProbe = Callable[[], Awaitable[bool]]
 
 class BackendCancelledError(Exception):
     """Raised when a backend cooperatively stops after an application cancellation."""
+
+
+class BackendFailureError(Exception):
+    """Carry a stable backend failure classification without exposing raw details."""
+
+    _ALLOWED_CODES = frozenset(
+        {
+            ErrorCode.UNSUPPORTED_PARAMETERS,
+            ErrorCode.MODEL_UNAVAILABLE,
+            ErrorCode.INSUFFICIENT_RESOURCES,
+            ErrorCode.GENERATION_FAILED,
+        }
+    )
+
+    def __init__(self, code: ErrorCode, *, retryable: bool) -> None:
+        if code not in self._ALLOWED_CODES:
+            raise ValueError("error code is not owned by generation backends")
+        super().__init__(code.value)
+        self.code = code
+        self.retryable = retryable
 
 
 @dataclass(frozen=True, slots=True)

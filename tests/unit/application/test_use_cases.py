@@ -20,14 +20,17 @@ from video_app.domain.jobs import GenerationJob, JobStatus
 from video_app.domain.models import (
     BackendOutput,
     DomainValidationError,
+    ErrorCode,
     Failure,
     GenerationMode,
+    GenerationRequest,
     GenerationRequestDraft,
     GenerationResult,
     ModelCapability,
     Progress,
     Resolution,
 )
+from video_app.domain.ports import BackendFailureError, GenerationContext
 
 NOW = datetime(2026, 8, 21, 10, 0, tzinfo=timezone.utc)
 RESOLUTION = Resolution(832, 480)
@@ -228,6 +231,28 @@ class MemoryArtifacts:
         self.keys.discard(storage_key)
 
 
+class BackendFailureBackend:
+    name = "wan21"
+    revision = "wan21-test-revision"
+
+    def capabilities(self) -> tuple[ModelCapability, ...]:
+        return (CAPABILITY,)
+
+    async def generate(
+        self,
+        request: GenerationRequest,
+        context: GenerationContext,
+    ) -> BackendOutput:
+        del request, context
+        try:
+            raise RuntimeError("private checkpoint path C:/secret/checkpoint")
+        except RuntimeError as error:
+            raise BackendFailureError(
+                ErrorCode.MODEL_UNAVAILABLE,
+                retryable=False,
+            ) from error
+
+
 class ApplicationUseCaseTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.repository = MemoryRepository()
@@ -328,6 +353,32 @@ class ApplicationUseCaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(processed.failure.code.value, "OUTPUT_WRITE_FAILED")
         self.assertNotIn("private", processed.failure.message)
         self.assertEqual(list(Path(self.temporary_directory.name).iterdir()), [])
+
+    async def test_backend_failure_uses_safe_code_and_retryability_without_leaking_cause(
+        self,
+    ) -> None:
+        await self.submit()
+        processed = await ProcessNextJob(
+            self.repository,
+            MemoryArtifacts(),
+            BackendFailureBackend(),
+            self.clock,
+            self.identifiers,
+            "worker-1",
+            timedelta(seconds=30),
+            timedelta(seconds=5),
+        )()
+
+        self.assertIsNotNone(processed)
+        assert processed is not None
+        self.assertEqual(processed.status, JobStatus.FAILED)
+        self.assertIsNotNone(processed.failure)
+        assert processed.failure is not None
+        self.assertEqual(processed.failure.code, ErrorCode.MODEL_UNAVAILABLE)
+        self.assertFalse(processed.failure.retryable)
+        self.assertTrue(processed.failure.message.strip())
+        self.assertNotIn("private checkpoint", processed.failure.message)
+        self.assertNotIn("C:/secret", processed.failure.message)
 
     async def test_worker_renews_lease_without_waiting_for_backend_progress(self) -> None:
         await self.submit()

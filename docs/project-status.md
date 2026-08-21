@@ -18,14 +18,19 @@
 - [x] Docker Compose PostgreSQL development service
 - [x] PostgreSQL schema migration and durable job repository
 - [x] FastAPI-to-worker offline text-to-video vertical slice
+- [x] Wan2.1 code and supported model revisions pinned
+- [x] External-process Wan2.1 worker adapter implemented and covered by offline tests
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Pin and integrate a tested Wan2.1 revision
+- [ ] Run the marked Wan2.1 GPU smoke test on target Windows/CUDA hardware
+- [ ] Verify subprocess and temporary-file cleanup during real GPU cancellation
+- [ ] Lock and record the operator-managed Wan2.1 runtime dependency set after qualification
 
 ## Explicitly undecided
 
 - Frontend framework
 - Authentication and deployment platform
 - Production model/checkpoint selection
+- Production GPU resource profile and sampler tuning
