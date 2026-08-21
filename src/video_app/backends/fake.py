@@ -58,6 +58,21 @@ def _remove_if_present(path: Path) -> None:
         return
 
 
+async def _write_without_cleanup_race(
+    partial_path: Path,
+    final_path: Path,
+    payload: bytes,
+) -> None:
+    write_task = asyncio.create_task(
+        asyncio.to_thread(_write_atomic, partial_path, final_path, payload)
+    )
+    try:
+        await asyncio.shield(write_task)
+    except asyncio.CancelledError:
+        await write_task
+        raise
+
+
 @dataclass(frozen=True, slots=True)
 class FakeBackend:
     """A bounded fake that behaves like a cooperative generation backend."""
@@ -140,7 +155,7 @@ class FakeBackend:
             if await context.is_cancellation_requested():
                 raise BackendCancelledError
             payload = _placeholder_mp4(request)
-            await asyncio.to_thread(_write_atomic, partial_path, final_path, payload)
+            await _write_without_cleanup_race(partial_path, final_path, payload)
             return BackendOutput(
                 temporary_path=final_path,
                 resolution=request.resolution,

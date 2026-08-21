@@ -15,7 +15,7 @@ from video_app.application.ports import (
     LeaseLostError,
 )
 from video_app.domain.jobs import GenerationJob
-from video_app.domain.models import ErrorCode, Failure, Progress
+from video_app.domain.models import BackendOutput, ErrorCode, Failure, Progress
 from video_app.domain.ports import (
     BackendCancelledError,
     GenerationBackend,
@@ -106,6 +106,7 @@ class ProcessNextJob:
         context = GenerationContext(lease.job.id, report_progress, is_cancelled)
         generation_task = asyncio.create_task(self.backend.generate(lease.job.request, context))
         heartbeat_task = asyncio.create_task(heartbeat_loop())
+        output: BackendOutput | None = None
         try:
             done, _ = await asyncio.wait(
                 {generation_task, heartbeat_task},
@@ -114,8 +115,14 @@ class ProcessNextJob:
             if heartbeat_task in done:
                 heartbeat_error = heartbeat_task.exception()
                 if heartbeat_error is not None:
-                    generation_task.cancel()
-                    await asyncio.gather(generation_task, return_exceptions=True)
+                    if generation_task.done() and not generation_task.cancelled():
+                        generation_error = generation_task.exception()
+                        if generation_error is None:
+                            candidate = generation_task.result()
+                            await self.artifacts.discard_candidate(candidate)
+                    else:
+                        generation_task.cancel()
+                        await asyncio.gather(generation_task, return_exceptions=True)
                     raise heartbeat_error
                 raise RuntimeError("heartbeat stopped before generation completed")
             output = generation_task.result()
@@ -133,10 +140,18 @@ class ProcessNextJob:
         finally:
             stop_heartbeat.set()
             if not heartbeat_task.done():
-                await heartbeat_task
+                try:
+                    await heartbeat_task
+                except LeaseLostError:
+                    if output is not None:
+                        await self.artifacts.discard_candidate(output)
+                    raise
             if not generation_task.done():
                 generation_task.cancel()
                 await asyncio.gather(generation_task, return_exceptions=True)
+
+        if output is None:
+            raise RuntimeError("generation completed without an output")
 
         try:
             result = await self.artifacts.store(lease.job.id, output, self.clock.now())

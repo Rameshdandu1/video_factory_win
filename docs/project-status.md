@@ -14,6 +14,7 @@
 - [x] Framework-independent domain types and backend protocol
 - [x] Offline fake generation backend
 - [x] Application job use cases and leased worker orchestration
+- [x] Safe local artifact-storage adapter
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
