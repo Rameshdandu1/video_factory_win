@@ -150,6 +150,10 @@ class PostgresJobRepository:
         self._queue_capacity = queue_capacity
         self._cursor_secret = cursor_secret
 
+    async def check_health(self) -> None:
+        async with self._engine.connect() as connection:
+            await connection.execute(sa.text("SELECT 1"))
+
     def _encode_cursor(self, created_at: datetime, job_id: str) -> str:
         payload = json.dumps([created_at.isoformat(), job_id], separators=(",", ":")).encode(
             "utf-8"

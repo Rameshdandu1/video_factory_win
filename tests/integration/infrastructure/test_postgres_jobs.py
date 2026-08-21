@@ -5,6 +5,7 @@ import os
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from video_app.application.ports import JobLease, LeaseLostError, QueueFullError
@@ -25,6 +26,7 @@ from video_app.infrastructure.schema import generation_jobs, metadata
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
+pytestmark = pytest.mark.integration
 
 
 def _job(job_id: str, *, created_at: datetime = NOW) -> GenerationJob:
@@ -81,7 +83,7 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
         worker: str = "worker-1",
         token: str = "token-1",
         now: datetime = NOW + timedelta(seconds=1),
-        expires_at: datetime = NOW + timedelta(seconds=31),
+        expires_at: datetime = NOW + timedelta(seconds=300),
     ) -> JobLease:
         lease = await self.repository.claim_next(
             worker_id=worker,
@@ -168,18 +170,22 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled.status, JobStatus.CANCELLED)
 
     async def test_recovery_ignores_renewed_lease_then_fails_it_after_expiry(self) -> None:
-        await self.repository.enqueue(_job("job-a"))
-        lease = await self._claim(expires_at=NOW + timedelta(seconds=5))
+        baseline = datetime.now(timezone.utc)
+        await self.repository.enqueue(_job("job-a", created_at=baseline))
+        lease = await self._claim(
+            now=baseline + timedelta(seconds=1),
+            expires_at=baseline + timedelta(seconds=30),
+        )
         renewed = await self.repository.heartbeat(
             lease,
-            now=NOW + timedelta(seconds=4),
-            expires_at=NOW + timedelta(seconds=20),
+            now=baseline + timedelta(seconds=2),
+            expires_at=baseline + timedelta(seconds=62),
             progress=None,
         )
 
         early = await self.repository.recover_expired(
             limit=10,
-            now=NOW + timedelta(seconds=6),
+            now=baseline + timedelta(seconds=31),
             correlation_id="recovery-1",
         )
         self.assertEqual(early, ())
@@ -187,7 +193,7 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         recovered = await self.repository.recover_expired(
             limit=10,
-            now=NOW + timedelta(seconds=21),
+            now=baseline + timedelta(seconds=63),
             correlation_id="recovery-2",
         )
         self.assertEqual(len(recovered), 1)

@@ -17,11 +17,11 @@
 - [x] Safe local artifact-storage adapter
 - [x] Docker Compose PostgreSQL development service
 - [x] PostgreSQL schema migration and durable job repository
+- [x] FastAPI-to-worker offline text-to-video vertical slice
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Deliver one text-to-video job vertical slice
 - [ ] Pin and integrate a tested Wan2.1 revision
 
 ## Explicitly undecided

@@ -59,3 +59,10 @@ class GenerationBackend(Protocol):
     ) -> BackendOutput:
         """Generate one temporary video while honoring progress and cancellation."""
         ...
+
+
+@runtime_checkable
+class CapabilityProvider(Protocol):
+    """Expose model capabilities without constructing a model runtime."""
+
+    def capabilities(self) -> tuple[ModelCapability, ...]: ...

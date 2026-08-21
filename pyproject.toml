@@ -16,6 +16,10 @@ dependencies = [
   "uvicorn==0.51.0",
 ]
 
+[project.scripts]
+video-app-api = "video_app.bootstrap:api_main"
+video-app-worker = "video_app.bootstrap:worker_main"
+
 [project.optional-dependencies]
 dev = [
   "alembic==1.19.0",

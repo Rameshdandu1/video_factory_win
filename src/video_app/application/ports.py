@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from video_app.domain.jobs import GenerationJob, JobStatus
@@ -102,6 +103,10 @@ class ExpiredLeaseRepository(Protocol):
     ) -> tuple[GenerationJob, ...]: ...
 
 
+class RepositoryHealth(Protocol):
+    async def check_health(self) -> None: ...
+
+
 class ArtifactStore(Protocol):
     async def store(
         self,
@@ -113,6 +118,10 @@ class ArtifactStore(Protocol):
     async def discard_candidate(self, output: BackendOutput) -> None: ...
 
     async def delete(self, storage_key: str) -> None: ...
+
+
+class ArtifactReader(Protocol):
+    def resolve_for_read(self, storage_key: str) -> Path: ...
 
 
 class Clock(Protocol):

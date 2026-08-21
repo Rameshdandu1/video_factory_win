@@ -12,6 +12,7 @@ application/     use cases and job orchestration
 domain/          stable business types, rules, and ports
 infrastructure/  persistence, queue, filesystem, and external adapters
 backends/        video-generation backend adapters
+bootstrap.py     API/worker composition root and process entry points
 ```
 
 The future frontend is a separate client of the API. Its framework is intentionally undecided. The HTTP transport uses FastAPI under ADR-002.
@@ -28,7 +29,7 @@ backends ------------------------------+
 
 `domain` imports only the Python standard library. `application` may import `domain`. `api`, `infrastructure`, and `backends` may import `application` and `domain`. The domain never imports an outer layer. Backend adapters never import API or infrastructure modules.
 
-Cross-layer calls use domain-owned ports and contracts. Composition happens only in an application bootstrap module, added when a runtime framework is selected.
+Cross-layer calls use domain-owned ports and contracts. Composition happens only in an application bootstrap module, added when a runtime framework is selected. `video_app/bootstrap.py` is that composition root: it may import all first-party layers solely to construct process-specific dependency graphs and contains no generation, persistence, transport, or storage policy.
 
 ## Ownership
 

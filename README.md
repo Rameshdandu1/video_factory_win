@@ -4,7 +4,7 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository contains the accepted MVP contract, framework-independent generation domain, offline fake backend, application job orchestration, safe local artifact storage, quality tooling, and CI scaffold. PostgreSQL is the accepted durable job store; the frontend remains intentionally undecided until recorded in an ADR.
+The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. The frontend and production Wan2.1 model configuration remain intentionally undecided until recorded in ADRs.
 
 ## Intended architecture
 
@@ -63,6 +63,28 @@ docker compose down
 
 `.env` is ignored by Git. Change its local password if this database will be reachable by anything other than your machine. The development port is bound to `127.0.0.1` only.
 
+## Run the offline application
+
+The `.env` runtime values select an explicit fake model capability and an absolute data root outside the repository. Reinstall the editable package after pulling command changes:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Start the API in one PowerShell window:
+
+```powershell
+.\.venv\Scripts\video-app-api.exe --env-file .env
+```
+
+Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive API documentation. Start the independent single-concurrency worker in a second PowerShell window:
+
+```powershell
+.\.venv\Scripts\video-app-worker.exe --env-file .env
+```
+
+The API only validates, persists, lists, cancels, and serves jobs. Generation is never run in the API process. Stop either process with `Ctrl+C`.
+
 ## Next milestone
 
-Deliver one end-to-end text-to-video job through the API and worker before downloading model weights.
+Pin a tested Wan2.1 revision and implement its isolated worker adapter without changing the API contract.

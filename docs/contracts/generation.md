@@ -171,6 +171,8 @@ The example values are illustrative configuration, not generation defaults. Actu
 
 ## Public operations
 
+Concrete HTTP status codes, collection envelopes, and safe transport-error mapping are recorded in [HTTP API Mapping v1](../specifications/http-api-v1.md).
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/v1/jobs` | Validate and create a generation job. |
@@ -186,4 +188,3 @@ Job listing is newest first, uses opaque cursor pagination, defaults to 20 items
 ## Local MVP retention
 
 Completed artifacts remain until manually removed by an operator. No public deletion operation exists in v1. Temporary files are removed after success, failure, and cancellation. A configurable production retention policy must be accepted before production deployment.
-
