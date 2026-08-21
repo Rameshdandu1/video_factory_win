@@ -12,11 +12,11 @@
 - [x] Local MVP artifact storage selected through ADR-004
 - [x] Job Persistence Specification v1 accepted
 - [x] Framework-independent domain types and backend protocol
+- [x] Offline fake generation backend
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Implement an offline fake backend
 - [ ] Deliver one text-to-video job vertical slice
 - [ ] Pin and integrate a tested Wan2.1 revision
 
