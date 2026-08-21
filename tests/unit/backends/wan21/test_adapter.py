@@ -440,6 +440,34 @@ class Wan21BackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reported, [])
         self.assertEqual(list(self.output_root.rglob("*")), [])
 
+    async def test_python310_poll_timeout_continues_until_cancellation(self) -> None:
+        self.spawn_returncode = None
+        checks = 0
+
+        async def cancellation_requested() -> bool:
+            nonlocal checks
+            checks += 1
+            return checks >= 5
+
+        context, _ = self.context(cancellation_requested)
+        with (
+            patch(
+                "video_app.backends.wan21.adapter._current_repository_revision",
+                return_value=WAN21_CODE_REVISION,
+            ),
+            patch(
+                "video_app.backends.wan21.adapter.asyncio.create_subprocess_exec",
+                new=self.spawn,
+            ),
+            self.assertRaises(BackendCancelledError),
+        ):
+            await self.backend().generate(REQUEST, context)
+
+        assert self.process is not None
+        self.assertGreaterEqual(checks, 5)
+        self.assertTrue(self.process.terminated)
+        self.assertEqual(list(self.output_root.rglob("*")), [])
+
     async def test_termination_timeout_force_kills_process_and_removes_candidate(self) -> None:
         self.spawn_returncode = None
         self.ignore_terminate = True

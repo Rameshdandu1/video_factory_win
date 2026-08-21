@@ -1,6 +1,6 @@
 # Wan2.1 Runtime Specification v1
 
-Status: External adapter implemented and offline-tested on 2026-08-21; GPU qualification pending
+Status: External adapter and qualification harness implemented on 2026-08-21; adapter offline tests and static checks pass; target GPU qualification pending
 
 This specification defines how the worker invokes a pinned external Wan2.1 runtime without changing Generation Contract v1. It is both the operator procedure and the exact adapter boundary. It does not select a production checkpoint, add generation defaults, or claim that real GPU generation has passed.
 
@@ -51,10 +51,10 @@ Runtime settings require absolute repository, checkpoint, Python, and data-root 
 
 ### Prerequisites
 
-- Docker PostgreSQL is running and the application migrations are current.
+- Full worker execution requires Docker PostgreSQL to be running with current application migrations. The direct GPU qualification harness below does not use PostgreSQL.
 - The Wan2.1 repository is checked out at the exact code revision above.
 - One checkpoint directory contains files from its exact listed model revision.
-- A separate Python environment contains the operator-selected Wan2.1, PyTorch, and CUDA dependencies.
+- A separate Python environment contains the operator-selected Wan2.1, PyTorch, CUDA, `imageio`, and `imageio-ffmpeg` dependencies, including a local working FFmpeg decoder.
 - The target GPU has been assessed for the chosen model. This repository does not yet certify a VRAM profile.
 
 ### Steps
@@ -127,18 +127,88 @@ Wan2.1 does not provide a reliable progress protocol through this subprocess bou
 
 ## GPU qualification gate
 
-Normal unit, architecture, and integration tests do not import Wan2.1, download weights, or require CUDA. The marked smoke test is opt-in and must run with the exact external checkout and checkpoint before this runtime is considered qualified:
+Normal unit, architecture, and integration tests do not import Wan2.1, download weights, or require CUDA. The marked qualification harness is opt-in. Enabling it makes missing or invalid qualification configuration a test failure; it skips only when `VIDEO_APP_RUN_WAN21_GPU_TESTS` is not exactly `1`.
+
+### Qualification scope
+
+One run qualifies only the recorded candidate configuration: the selected task and model revision, the checkpoint content-manifest digest, the external Python dependency inventory, the recorded hardware/runtime, and the fixed `832x480`, 81-frame, seed-42 request. It performs one complete generation, then starts a second generation and requests cancellation only after the captured Wan2.1 Python parent PID appears in the previously empty host-wide NVIDIA compute-process list.
+
+This direct adapter harness does not use PostgreSQL, job leases, persisted cancellation state, artifact publication, the API, `VIDEO_APP_BACKEND`, logical model capability variables, the application data root, or the cursor secret. A pass does not select a production checkpoint, qualify portrait or 720p presets, or make the complete application production-ready.
+
+### Required environment
+
+| Environment variable | Constraint |
+| --- | --- |
+| `VIDEO_APP_RUN_WAN21_GPU_TESTS` | Exactly `1`; otherwise the qualification test is skipped |
+| `VIDEO_APP_WAN21_REPOSITORY_ROOT` | Existing absolute, non-link/reparse, clean checkout outside the application repository at the pinned Wan2.1 code revision |
+| `VIDEO_APP_WAN21_CHECKPOINT_DIR` | Existing absolute, non-link/reparse, nonempty materialized checkpoint tree outside the application repository; nested links and reparse points are rejected and every file is hashed |
+| `VIDEO_APP_WAN21_PYTHON` | Existing absolute, non-link/reparse external Python executable outside the application repository |
+| `VIDEO_APP_WAN21_QUALIFICATION_DIR` | Existing absolute, non-link/reparse directory outside the application, Wan2.1 source, and checkpoint trees for temporary output and atomic JSON evidence |
+| `VIDEO_APP_WAN21_TASK` | Exactly `t2v-1.3B` or `t2v-14B` |
+| `VIDEO_APP_WAN21_MODEL_REVISION` | Exact allowlisted revision for the selected task |
+
+These optional controls must be finite positive numbers when set:
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `VIDEO_APP_WAN21_GENERATION_TIMEOUT_SECONDS` | `3600` | Maximum wait before the successful generation is treated as timed out |
+| `VIDEO_APP_WAN21_CANCELLATION_TIMEOUT_SECONDS` | `120` | Per-phase normal cancellation and forced-settlement wait budget |
+| `VIDEO_APP_WAN21_GPU_OBSERVE_TIMEOUT_SECONDS` | `300` | Maximum wait for GPU process observation or release |
+
+Set `CUDA_VISIBLE_DEVICES` on a multi-GPU host so the generation device is deliberate. This does not scope `nvidia-smi`: the cleanup gate covers every NVIDIA GPU visible to that command. The report records whether selection was configured, but not its value.
+
+### Qualification prerequisites
+
+- Commit the harness first. The application repository and the external Wan2.1 checkout must both be wholly clean, including untracked files, and Git must be available.
+- Use the application `.venv` with this project and its development test dependencies installed.
+- The external Python must import `torch`, `imageio`, and `imageio_ffmpeg`; its local FFmpeg decoder must work while offline.
+- `torch.cuda.is_available()` must be true, at least one CUDA device must exist, a tiny allocation and synchronization must succeed, and `nvidia-smi` must support both device and compute-process queries.
+- Reserve every NVIDIA GPU visible to `nvidia-smi` for the qualification window. After the runtime probe exits, the harness requires an empty host-wide compute-process baseline and fails if any compute process remains after either generation or cancellation.
+- Provide enough VRAM, disk, and wall time for the selected checkpoint. The harness records observed capacity and relies on successful generation; it does not invent production disk or VRAM thresholds.
+- On Windows, retain `SYSTEMROOT` and a usable system `taskkill.exe` so the adapter can terminate the process tree.
+- Run on an egress-disabled or monitored host if network-free evidence is required. The adapter's Hugging Face and Transformers offline flags are not an operating-system network sandbox.
+
+### PowerShell invocation
+
+Commit the application changes so `git status --short --untracked-files=all` prints nothing, then configure an evidence directory outside this repository and run:
 
 ```powershell
 $env:VIDEO_APP_RUN_WAN21_GPU_TESTS = "1"
 $env:VIDEO_APP_WAN21_REPOSITORY_ROOT = "C:/path/to/Wan2.1"
 $env:VIDEO_APP_WAN21_CHECKPOINT_DIR = "C:/path/to/Wan2.1-T2V-1.3B"
 $env:VIDEO_APP_WAN21_PYTHON = "C:/path/to/wan21-venv/Scripts/python.exe"
+$env:VIDEO_APP_WAN21_QUALIFICATION_DIR = "C:/wan21-qualification-evidence"
 $env:VIDEO_APP_WAN21_TASK = "t2v-1.3B"
+$env:VIDEO_APP_WAN21_MODEL_REVISION = "37ec512624d61f7aa208f7ea8140a131f93afc9a"
 .\.venv\Scripts\python.exe -m pytest -m gpu tests/gpu/backends/test_wan21_smoke.py
 ```
 
-Qualification must record the Python, PyTorch, CUDA, driver, GPU, VRAM, external dependency lock, selected task/checkpoint, generation duration, semantic decode and structural output validation, and process-tree cancellation cleanup result. Until that record exists, the adapter is implemented but not production-ready.
+The harness has no implicit retry. It hashes the entire checkpoint without a timeout, probes the external runtime for at most 120 seconds, and independently decodes the successful video for at most 300 seconds. Git commands use 10-second limits and each `nvidia-smi` query uses a 30-second limit. Spawn observation and GPU observation can each consume the configured GPU-observation budget. The adapter uses a 10-second termination grace. The total run includes checkpoint hashing, one complete generation, independent decode, and a second model start through GPU observation, so it can substantially exceed the successful-generation timeout. Use an operator-level watchdog in addition to the in-process limits because filesystem hashing, operating-system process creation, and test-runner teardown cannot be made hard real-time boundaries.
+
+### Pass criteria and evidence
+
+A pass atomically writes `wan21-qualification-*.json` to the qualification directory with schema `wan21-gpu-qualification-v1`, `status` equal to `passed`, and `phase` equal to `complete`. The retained evidence includes:
+
+- start/end timestamps and the exact task, model revision, seed, dimensions, and frame count;
+- clean application and Wan2.1 revisions, plus the expected Wan2.1 pin;
+- checkpoint file count, total bytes, local content-manifest SHA-256, and hash duration;
+- external operating system, Python, installed package names/versions and inventory digest, PyTorch, CUDA, cuDNN, `imageio`, `imageio-ffmpeg`, FFmpeg, device count, and selected GPU properties;
+- `nvidia-smi` GPU name, driver, and total/free-memory snapshots before generation, after generation, during cancellation, and after cancellation;
+- evidence-directory disk capacity/free space before and after the run;
+- successful-generation duration, artifact byte count and SHA-256, independent exact frame/dimension decode, and explicit top-level MP4 `ftyp`/`moov`/`mdat` structure evidence;
+- observed GPU compute-process IDs, captured parent PID/return code, cancellation cleanup duration, empty temporary output, and successful clearing of every GPU compute process from the exclusive baseline.
+
+After valid configuration establishes a report destination, failures attempt to write sanitized evidence with the last phase and exception type. Configuration failures that occur before report initialization cannot write a report. Reports contain no prompt, raw environment dump, `CUDA_VISIBLE_DEVICES` contents, host paths, raw subprocess stdout/stderr, raw exception text, media, or stable GPU UUID. They do retain the selected task/revision, the CUDA-selection boolean, validated structured probe results, package inventory, and transient process IDs, so keep them outside Git in operator-controlled storage.
+
+### Qualification limitations
+
+- The local checkpoint digest establishes a future identity for that exact tree; it does not prove the first tree came from the declared upstream revision.
+- The installed package inventory and digest record what ran but are not a hashed, reproducible dependency lock. Promote the accepted inventory into the operator-managed lock before release.
+- The cancellation phase proves the captured parent exited, all GPU-visible processes cleared from an exclusive baseline, and candidates were removed. It does not enumerate non-GPU descendants, enforce return to a specific VRAM baseline, or exercise the full persisted worker/job cancellation path.
+- Unexpected worker-parent exit remains outside the adapter cleanup guarantee.
+- Qualification remains task, checkpoint-content, hardware, runtime, and preset specific. Each production-enabled preset needs its own accepted evidence.
+
+Until a passing report exists for the intended target and the remaining dependency/provenance decisions are recorded, the adapter is implemented but not production-ready.
 
 ## Related contracts
 

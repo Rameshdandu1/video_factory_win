@@ -4,7 +4,7 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. It also contains an external-process Wan2.1 worker adapter pinned and tested without a GPU. GPU qualification, the frontend, and the production checkpoint choice remain outstanding.
+The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. It also contains an external-process Wan2.1 worker adapter pinned and tested without a GPU, plus an opt-in evidence-producing qualification harness. An accepted target-GPU qualification report, the frontend, and the production checkpoint choice remain outstanding.
 
 ## Intended architecture
 
@@ -95,8 +95,8 @@ If you want to use one worker cycle to validate configuration, first confirm thr
 .\.venv\Scripts\video-app-worker.exe --env-file .env --once
 ```
 
-`--once` is not a dry run. It performs recovery and one claim attempt, so it will execute one queued generation if a job is available. The adapter rejects an unpinned or dirty checkout, a mismatched model revision, unsupported capabilities, and invalid runtime paths at worker startup. The API does not load Wan2.1. Real generation still requires the explicit marked GPU smoke test before this runtime is treated as qualified.
+`--once` is not a dry run. It performs recovery and one claim attempt, so it will execute one queued generation if a job is available. The adapter rejects an unpinned or dirty checkout, a mismatched model revision, unsupported capabilities, and invalid runtime paths at worker startup. The API does not load Wan2.1. Real generation still requires a passing report from the explicit marked GPU qualification harness before this runtime is treated as qualified.
 
 ## Next milestone
 
-Run and record the pinned Wan2.1 GPU smoke test on the target Windows/CUDA hardware, verify cancellation cleanup, and lock the external runtime dependency set. This does not change the public API contract.
+Run and retain the pinned Wan2.1 GPU qualification report on target Windows/CUDA hardware, then promote the accepted external runtime inventory into a dependency lock. This does not change the public API contract.

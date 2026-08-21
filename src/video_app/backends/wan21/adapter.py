@@ -488,7 +488,7 @@ class Wan21Backend:
                 process.wait(),
                 timeout=self.termination_grace_seconds,
             )
-        except TimeoutError:
+        except asyncio.TimeoutError:
             if process.returncode is None:
                 await self._signal_process_tree(process, force=True)
             try:
@@ -496,7 +496,7 @@ class Wan21Backend:
                     process.wait(),
                     timeout=self.termination_grace_seconds,
                 )
-            except TimeoutError as error:
+            except asyncio.TimeoutError as error:
                 communication.cancel()
                 await asyncio.gather(communication, return_exceptions=True)
                 raise BackendFailureError(
@@ -508,7 +508,7 @@ class Wan21Backend:
                 asyncio.shield(communication),
                 timeout=self.termination_grace_seconds,
             )
-        except TimeoutError:
+        except asyncio.TimeoutError:
             communication.cancel()
             await asyncio.gather(communication, return_exceptions=True)
         except Exception:
@@ -575,7 +575,7 @@ class Wan21Backend:
                         asyncio.shield(communication),
                         timeout=self.cancellation_poll_seconds,
                     )
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     continue
             await communication
             if await context.is_cancellation_requested():
