@@ -28,4 +28,4 @@ pytest -m "not gpu"
 
 ## Next milestone
 
-Accept the Generation Contract v1, select the API/queue/storage stack through ADRs, add a fake generation backend, and implement one end-to-end text-to-video job before downloading model weights.
+Select the API/queue/storage stack through ADRs, implement the accepted Generation Contract v1 with a fake backend, and deliver one end-to-end text-to-video job before downloading model weights.

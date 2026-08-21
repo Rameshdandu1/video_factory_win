@@ -5,12 +5,12 @@
 - [x] Engineering constitution
 - [x] Baseline architecture and dependency direction
 - [x] Wan2.1 adapter boundary decision
-- [x] Draft generation contract
+- [x] MVP Requirements v1 accepted
+- [x] Generation Contract v1 accepted
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Accept the Generation Contract v1
 - [ ] Select API framework through an ADR
 - [ ] Select queue and persistence through ADRs
 - [ ] Implement domain types and backend protocol
@@ -26,4 +26,3 @@
 - Database and object storage
 - Authentication and deployment platform
 - Production model/checkpoint selection
-
