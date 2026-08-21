@@ -153,4 +153,7 @@ def worker_main() -> None:
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--once", action="store_true")
     arguments = parser.parse_args()
-    asyncio.run(_run_worker(_settings_from_file(arguments.env_file), once=arguments.once))
+    try:
+        asyncio.run(_run_worker(_settings_from_file(arguments.env_file), once=arguments.once))
+    except KeyboardInterrupt:
+        return
