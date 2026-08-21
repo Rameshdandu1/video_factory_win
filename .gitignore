@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Model artifacts and ML caches
+models/
+checkpoints/
+weights/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.bin
+.cache/
+huggingface/
+
+# Runtime data and generated media
+data/
+uploads/
+outputs/
+generated/
+tmp/
+*.mp4
+*.webm
+*.mov
+*.avi
+*.gif
+*.sqlite
+*.sqlite3
+
+# Logs and coverage
+*.log
+.coverage
+htmlcov/
+coverage.xml
+
