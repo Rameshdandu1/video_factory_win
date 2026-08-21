@@ -4,7 +4,7 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository contains the engineering constitution, enforceable architecture boundaries, draft generation contract, quality tooling, and CI scaffold. Infrastructure and UI framework choices remain intentionally undecided until recorded in ADRs.
+The repository contains the accepted MVP contract, framework-independent generation domain, offline fake backend, application job orchestration, safe local artifact storage, quality tooling, and CI scaffold. PostgreSQL is the accepted durable job store; the frontend remains intentionally undecided until recorded in an ADR.
 
 ## Intended architecture
 
@@ -26,6 +26,30 @@ mypy
 pytest -m "not gpu"
 ```
 
+## Local PostgreSQL
+
+Docker Desktop must be running. From this repository in PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d postgres
+docker compose ps
+```
+
+Wait until the service reports `healthy`, then open PostgreSQL with:
+
+```powershell
+docker compose exec postgres psql -U video_app -d video_factory
+```
+
+Type `\q` to leave `psql`. Stop the service without deleting its data with:
+
+```powershell
+docker compose down
+```
+
+`.env` is ignored by Git. Change its local password if this database will be reachable by anything other than your machine. The development port is bound to `127.0.0.1` only.
+
 ## Next milestone
 
-Implement the accepted Generation Contract v1 as framework-independent domain types and ports, add a fake backend, and deliver one end-to-end text-to-video job before downloading model weights.
+Implement the PostgreSQL migration and durable job repository, then deliver one end-to-end text-to-video job before downloading model weights.
