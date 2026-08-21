@@ -16,11 +16,11 @@
 - [x] Application job use cases and leased worker orchestration
 - [x] Safe local artifact-storage adapter
 - [x] Docker Compose PostgreSQL development service
+- [x] PostgreSQL schema migration and durable job repository
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] PostgreSQL schema migration and durable job repository
 - [ ] Deliver one text-to-video job vertical slice
 - [ ] Pin and integrate a tested Wan2.1 revision
 

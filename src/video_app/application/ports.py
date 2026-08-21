@@ -92,6 +92,16 @@ class JobRepository(Protocol):
     async def confirm_cancelled(self, lease: JobLease, now: datetime) -> GenerationJob: ...
 
 
+class ExpiredLeaseRepository(Protocol):
+    async def recover_expired(
+        self,
+        *,
+        limit: int,
+        now: datetime,
+        correlation_id: str,
+    ) -> tuple[GenerationJob, ...]: ...
+
+
 class ArtifactStore(Protocol):
     async def store(
         self,
@@ -119,6 +129,9 @@ class IdentifierFactory(Protocol):
     def new_correlation_id(self) -> str: ...
 
 
+class CorrelationIdentifierFactory(Protocol):
+    def new_correlation_id(self) -> str: ...
+
+
 class SeedSource(Protocol):
     def new_seed(self) -> int: ...
-

@@ -42,6 +42,19 @@ Wait until the service reports `healthy`, then open PostgreSQL with:
 docker compose exec postgres psql -U video_app -d video_factory
 ```
 
+Apply forward-only schema migrations from PowerShell:
+
+```powershell
+$env:DATABASE_URL = (Get-Content .env | Where-Object { $_ -like 'DATABASE_URL=*' }).Split('=', 2)[1]
+.\.venv\Scripts\alembic.exe upgrade head
+```
+
+Run the PostgreSQL integration tests while `DATABASE_URL` remains set:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m integration
+```
+
 Type `\q` to leave `psql`. Stop the service without deleting its data with:
 
 ```powershell
@@ -52,4 +65,4 @@ docker compose down
 
 ## Next milestone
 
-Implement the PostgreSQL migration and durable job repository, then deliver one end-to-end text-to-video job before downloading model weights.
+Deliver one end-to-end text-to-video job through the API and worker before downloading model weights.

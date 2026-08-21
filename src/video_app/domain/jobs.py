@@ -33,12 +33,8 @@ class JobStatus(str, Enum):
 
 
 ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
-    JobStatus.QUEUED: frozenset(
-        {JobStatus.RUNNING, JobStatus.FAILED, JobStatus.CANCELLED}
-    ),
-    JobStatus.RUNNING: frozenset(
-        {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
-    ),
+    JobStatus.QUEUED: frozenset({JobStatus.RUNNING, JobStatus.FAILED, JobStatus.CANCELLED}),
+    JobStatus.RUNNING: frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}),
     JobStatus.SUCCEEDED: frozenset(),
     JobStatus.FAILED: frozenset(),
     JobStatus.CANCELLED: frozenset(),
@@ -133,14 +129,13 @@ class GenerationJob:
                 raise ValueError("failed job requires only a failure and completion time")
             if failure.job_id != self.id:
                 raise ValueError("failure job_id must match the job")
-        elif self.status is JobStatus.CANCELLED:
-            if (
-                self.completed_at is None
-                or self.cancellation_requested_at is None
-                or self.result is not None
-                or self.failure is not None
-            ):
-                raise ValueError("cancelled job requires cancellation and no terminal payload")
+        elif self.status is JobStatus.CANCELLED and (
+            self.completed_at is None
+            or self.cancellation_requested_at is None
+            or self.result is not None
+            or self.failure is not None
+        ):
+            raise ValueError("cancelled job requires cancellation and no terminal payload")
 
     @classmethod
     def queued(cls, job_id: str, request: GenerationRequest, now: datetime) -> GenerationJob:

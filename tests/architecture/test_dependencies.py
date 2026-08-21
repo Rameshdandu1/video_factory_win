@@ -58,4 +58,3 @@ def test_wan_imports_are_confined_to_adapter() -> None:
             if module == "wan" or module.startswith("wan."):
                 violations.append(f"{path.relative_to(SOURCE_ROOT)} imports {module}")
     assert not violations, "Wan2.1 imports outside adapter:\n" + "\n".join(violations)
-

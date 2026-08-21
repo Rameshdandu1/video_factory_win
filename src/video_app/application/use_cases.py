@@ -77,4 +77,3 @@ class ListJobs:
         if not 1 <= limit <= 100:
             raise DomainValidationError("job list limit must be between 1 and 100")
         return await self.repository.list_page(limit=limit, cursor=cursor, status=status)
-

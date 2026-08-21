@@ -1,2 +1,1 @@
 """Video generation application package."""
-

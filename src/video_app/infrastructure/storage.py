@@ -19,9 +19,7 @@ _KEY_PATTERN = re.compile(r"^[0-9a-f]{32}\.mp4$")
 
 def _is_link(path: Path) -> bool:
     attributes = getattr(path.lstat(), "st_file_attributes", 0)
-    return path.is_symlink() or bool(
-        attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    )
+    return path.is_symlink() or bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
 
 def _validate_candidate(path: Path) -> None:
@@ -121,4 +119,3 @@ class LocalArtifactStore:
         if not path.is_file() or _is_link(path):
             raise FileNotFoundError(storage_key)
         return path
-

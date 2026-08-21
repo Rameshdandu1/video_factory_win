@@ -3,4 +3,3 @@
 from video_app.infrastructure.storage import LocalArtifactStore
 
 __all__ = ["LocalArtifactStore"]
-

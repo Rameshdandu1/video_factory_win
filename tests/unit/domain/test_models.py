@@ -60,19 +60,18 @@ class RequestNormalizationTests(unittest.TestCase):
 
     def test_rejects_empty_or_too_long_prompt(self) -> None:
         for prompt in ("   ", "x" * 2_001):
-            with self.subTest(length=len(prompt)):
-                with self.assertRaises(DomainValidationError):
-                    normalize_request(
-                        GenerationRequestDraft(
-                            prompt=prompt,
-                            model="wan21-t2v",
-                            width=832,
-                            height=480,
-                            frame_count=81,
-                        ),
-                        self.capability,
-                        lambda: 1,
-                    )
+            with self.subTest(length=len(prompt)), self.assertRaises(DomainValidationError):
+                normalize_request(
+                    GenerationRequestDraft(
+                        prompt=prompt,
+                        model="wan21-t2v",
+                        width=832,
+                        height=480,
+                        frame_count=81,
+                    ),
+                    self.capability,
+                    lambda: 1,
+                )
 
     def test_rejects_unsupported_setting_combinations(self) -> None:
         invalid_drafts = (
@@ -81,19 +80,17 @@ class RequestNormalizationTests(unittest.TestCase):
             GenerationRequestDraft("p", "wan21-t2v", 832, 480, 80),
         )
         for draft in invalid_drafts:
-            with self.subTest(draft=draft):
-                with self.assertRaises(DomainValidationError):
-                    normalize_request(draft, self.capability, lambda: 1)
+            with self.subTest(draft=draft), self.assertRaises(DomainValidationError):
+                normalize_request(draft, self.capability, lambda: 1)
 
     def test_rejects_seed_outside_signed_64_bit_range(self) -> None:
         for seed in (-(2**63) - 1, 2**63):
-            with self.subTest(seed=seed):
-                with self.assertRaises(DomainValidationError):
-                    normalize_request(
-                        GenerationRequestDraft("p", "wan21-t2v", 832, 480, 81, seed),
-                        self.capability,
-                        lambda: 1,
-                    )
+            with self.subTest(seed=seed), self.assertRaises(DomainValidationError):
+                normalize_request(
+                    GenerationRequestDraft("p", "wan21-t2v", 832, 480, 81, seed),
+                    self.capability,
+                    lambda: 1,
+                )
 
 
 class OutputValueTests(unittest.TestCase):
@@ -117,4 +114,3 @@ class OutputValueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
