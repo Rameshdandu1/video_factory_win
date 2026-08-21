@@ -11,11 +11,11 @@
 - [x] PostgreSQL job store and durable queue selected through ADR-003
 - [x] Local MVP artifact storage selected through ADR-004
 - [x] Job Persistence Specification v1 accepted
+- [x] Framework-independent domain types and backend protocol
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Implement domain types and backend protocol
 - [ ] Implement an offline fake backend
 - [ ] Deliver one text-to-video job vertical slice
 - [ ] Pin and integrate a tested Wan2.1 revision
