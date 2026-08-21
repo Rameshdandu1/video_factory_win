@@ -2,11 +2,31 @@
 
 These rules apply to the entire repository.
 
+## Source of truth
+
+Use this priority order when instructions conflict:
+
+1. Current explicit user instruction.
+2. This file.
+3. Accepted architecture decision records in `docs/decisions/`.
+4. `docs/architecture.md` and stable contracts.
+5. Versioned specifications.
+6. Tests.
+7. Existing implementation.
+8. Assumptions.
+
+Stop and report unresolved conflicts. Never silently choose between competing sources of truth.
+
+## Read before write
+
+Before changing code, read this file, the relevant specification and ADRs, existing implementation, and existing tests. Search for equivalent functionality before creating a file, type, or function. Extend or reuse the canonical implementation instead of creating a parallel one.
+
 ## Product boundaries
 
 - This repository is the application layer. Treat Wan2.1 as an external generation backend; do not copy or casually patch upstream source into the app.
 - Keep UI, API, orchestration, persistence, and model-runtime code separated. Application code must depend on a small backend interface, not Wan2.1 internals.
 - Start with text-to-video. Add image-to-video, editing, or other modes only behind explicit capabilities.
+- Follow the module ownership and dependency rules in `docs/architecture.md`. Do not introduce a new top-level source module without explicit approval and an accepted ADR.
 
 ## Python and interfaces
 
@@ -54,3 +74,24 @@ These rules apply to the entire repository.
 - Do not commit directly generated artifacts. Update documentation when configuration, setup, architecture, or operational behavior changes.
 - Preserve upstream license notices when distributing or adapting Wan2.1 code, and review licenses for models and dependencies before release.
 
+## Change control
+
+The following require explicit approval and an ADR before implementation: changing dependency direction, replacing the backend abstraction, selecting or replacing an API/UI framework, selecting a queue or database, changing persistence schemas, changing public APIs, or moving ownership between modules.
+
+For changes touching more than three implementation files, first state the affected files, why each changes, architecture/API/data impact, risks, and verification plan. This does not count generated files or straightforward test fixtures.
+
+Do not invent permanent infrastructure choices when requirements are missing. Prefer a replaceable interface or stop and request the decision.
+
+## Forbidden without approval
+
+- Copying Wan2.1 source into first-party packages or importing its internals outside the Wan adapter.
+- Loading models in an API process, route handler, module import, or test collection.
+- Letting API, UI, or infrastructure types leak into the domain.
+- Adding a second job state model, backend interface, configuration system, or persistence abstraction.
+- Changing generation defaults, prompt processing, safety policy, storage schema, or public contract without a specification update.
+- Disabling checks, weakening types, deleting tests, or adding broad ignores merely to make CI pass.
+- Refactoring, renaming, or formatting unrelated code.
+
+## Definition of done
+
+A change is complete only when its requested behavior works, relevant tests cover it, all existing checks pass, architecture boundaries remain intact, no unrelated files changed, and documentation/contracts are updated where necessary.

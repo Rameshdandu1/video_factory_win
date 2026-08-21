@@ -4,7 +4,7 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository currently contains the engineering rules and initial project boundary. The application stack and first vertical slice are intentionally not selected yet.
+The repository contains the engineering constitution, enforceable architecture boundaries, draft generation contract, quality tooling, and CI scaffold. Infrastructure and UI framework choices remain intentionally undecided until recorded in ADRs.
 
 ## Intended architecture
 
@@ -14,9 +14,18 @@ Wan2.1 currently requires Python 3.10+, PyTorch 2.4+, and model-specific checkpo
 
 ## Repository policy
 
-See [AGENTS.md](AGENTS.md) for coding, testing, GPU-job, media-safety, and Git rules.
+Start with [AGENTS.md](AGENTS.md), then read [docs/architecture.md](docs/architecture.md), relevant contracts, and accepted decisions before modifying code.
+
+## Local quality checks
+
+```bash
+python -m pip install -e ".[dev]"
+ruff format --check .
+ruff check .
+mypy
+pytest -m "not gpu"
+```
 
 ## Next milestone
 
-Choose the API/UI stack, add a fake generation backend, and implement one end-to-end text-to-video job before downloading model weights.
-
+Accept the Generation Contract v1, select the API/queue/storage stack through ADRs, add a fake generation backend, and implement one end-to-end text-to-video job before downloading model weights.
