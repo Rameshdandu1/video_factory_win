@@ -4,13 +4,15 @@ Application scaffold for a video-generation product backed by [Wan2.1](https://g
 
 ## Status
 
-The repository contains a complete offline vertical slice: FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. It also contains an external-process Wan2.1 worker adapter pinned and tested without a GPU, plus an opt-in evidence-producing qualification harness. An accepted target-GPU qualification report, the frontend, and the production checkpoint choice remain outstanding.
+The repository contains a complete offline application vertical slice: React browser client, FastAPI transport, PostgreSQL durable queue, independently executed worker, fake generation backend, and safe local MP4 delivery. Frontend UI v1 is implemented and verified against the existing API contract. The repository also contains an external-process Wan2.1 worker adapter pinned and tested without a GPU, plus an opt-in evidence-producing qualification harness. An accepted target-GPU qualification report and the production checkpoint choice remain outstanding.
 
 ## Intended architecture
 
 The app calls Wan2.1 through a narrow generation-backend interface. Web/API code, job orchestration, and storage remain independent of Wan2.1 so the model runtime runs in a dedicated GPU worker process.
 
 The adapter requires a separate operator-managed Wan2.1 checkout, Python/CUDA environment, and checkpoint directory. Application code is pinned to Wan2.1 commit `9737cba9c1c3c4d04b33fcad41c111989865d315`; it never follows a moving branch. See [Wan2.1 Runtime Specification v1](docs/specifications/wan21-runtime-v1.md) for the model pins and runtime procedure.
+
+The browser client is a separate top-level `frontend/` workspace selected in [ADR-005](docs/decisions/ADR-005-react-typescript-vite-frontend.md). It uses React, strict TypeScript, Vite, a typed native-fetch client, bounded polling, and plain CSS. It consumes the existing `/api/v1` contract without importing Python code or changing authentication, CORS, schemas, generation defaults, or runtime behavior. See [Frontend UI Specification v1](docs/specifications/frontend-ui-v1.md) and [DESIGN.md](DESIGN.md).
 
 ## Repository policy
 
@@ -24,6 +26,17 @@ ruff format --check .
 ruff check .
 mypy
 pytest -m "not gpu"
+```
+
+Frontend checks run independently from `frontend/` with Node 22.12 or newer:
+
+```powershell
+npm ci
+npm run format
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
 ## Local PostgreSQL
@@ -85,6 +98,16 @@ Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive AP
 
 The API only validates, persists, lists, cancels, and serves jobs. Generation is never run in the API process. Stop either process with `Ctrl+C`.
 
+Start the separate frontend in a third PowerShell window:
+
+```powershell
+Set-Location frontend
+npm ci
+npm run dev
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards relative `/api` requests to the local FastAPI server at `127.0.0.1:8000`; this development proxy does not enable or require backend CORS.
+
 ## Run the pinned Wan2.1 worker
 
 Keep the fake backend for normal development and CI. To opt into real generation, first prepare a separate Wan2.1 checkout, matching checkpoint, and GPU Python environment as described in [Wan2.1 Runtime Specification v1](docs/specifications/wan21-runtime-v1.md). Then change `VIDEO_APP_BACKEND` to `wan21`, add all five `VIDEO_APP_WAN21_*` values shown in [.env.example](.env.example), and make the configured model capability match the selected task.
@@ -99,4 +122,4 @@ If you want to use one worker cycle to validate configuration, first confirm thr
 
 ## Next milestone
 
-Run and retain the pinned Wan2.1 GPU qualification report on target Windows/CUDA hardware, then promote the accepted external runtime inventory into a dependency lock. This does not change the public API contract.
+Run and retain the pinned Wan2.1 GPU qualification report on target Windows/CUDA hardware, then promote the accepted external runtime inventory into a dependency lock. This external hardware milestone does not change the public API contract.

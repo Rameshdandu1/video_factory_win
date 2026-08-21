@@ -4,7 +4,7 @@ Status: Accepted baseline
 
 ## Shape
 
-The application is a modular monolith with an independently deployable GPU worker. First-party Python code lives below `src/video_app/`:
+The application is a modular monolith with an independently deployable GPU worker and a separate browser client. First-party Python code lives below `src/video_app/`:
 
 ```text
 api/             transport and request/response mapping
@@ -15,9 +15,15 @@ backends/        video-generation backend adapters
 bootstrap.py     API/worker composition root and process entry points
 ```
 
-The future frontend is a separate client of the API. Its framework is intentionally undecided. The HTTP transport uses FastAPI under ADR-002.
+First-party browser code lives below the separate top-level `frontend/` workspace. React, TypeScript, and Vite are selected through [ADR-005](decisions/ADR-005-react-typescript-vite-frontend.md). The frontend consumes only the public `/api/v1` HTTP representation; it never imports Python application modules or owns authoritative job state. The HTTP transport uses FastAPI under ADR-002.
 
 ## Dependency direction
+
+```text
+frontend ----HTTP----> api
+```
+
+The API then follows the existing Python dependency direction:
 
 ```text
 api ---------> application ---------> domain
@@ -53,7 +59,15 @@ Owns the PostgreSQL job repository/queue, local artifact storage, clocks, identi
 
 Owns adapters for generation engines. `backends/wan21/` is the only first-party package allowed to import Wan2.1. It translates stable domain requests into upstream calls and upstream outputs/errors back into stable results.
 
+### `frontend/`
+
+Owns React presentation state, accessible browser interactions, responsive plain-CSS layout, and a typed native-fetch client for Generation Contract v1. It preserves `snake_case` wire types and treats API responses as authoritative. It must not import first-party Python modules, connect to PostgreSQL, access local artifact paths, invoke a backend, or introduce a second job state model.
+
+The frontend uses React state and effects directly. A router, query/cache library, global state store, UI/component kit, Tailwind, and alternative HTTP client are excluded by ADR-005. `@chenglou/pretext` is limited to text measurement and layout and owns no controls, styling system, remote data, or application state.
+
 ## Process boundary
+
+The browser discovers capabilities and submits or reads jobs through `/api/v1`. A Vite development proxy forwards relative `/api` requests to FastAPI without changing backend CORS policy. The proxy makes no production-hosting decision.
 
 The API validates and enqueues. A GPU worker loads Wan2.1, claims bounded work, reports truthful state, writes output atomically, and always releases temporary/GPU resources. The API process must remain usable without CUDA or model weights.
 
@@ -65,6 +79,8 @@ PostgreSQL is the authoritative job store and durable queue. Workers claim with 
 
 Contracts documented in `docs/contracts/generation.md` are stable. Renaming fields, changing meanings, or removing states requires a versioned migration and an accepted ADR.
 
+The frontend is a consumer of that contract, not an extension point for hidden defaults or operations. Browser polling uses existing GET operations and never fabricates progress or retries generation.
+
 ## Enforcement
 
-`tests/architecture/test_dependencies.py` checks import direction without importing application modules. CI runs architecture tests, unit tests, linting, formatting verification, and strict type checking.
+`tests/architecture/test_dependencies.py` checks Python import direction without importing application modules. Python CI runs architecture tests, unit tests, linting, formatting verification, and strict type checking. The frontend independently runs Prettier verification, ESLint with zero warnings, strict TypeScript, Vitest/Testing Library tests, and a production Vite build.

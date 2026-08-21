@@ -10,6 +10,9 @@
 - [x] FastAPI transport framework selected through ADR-002
 - [x] PostgreSQL job store and durable queue selected through ADR-003
 - [x] Local MVP artifact storage selected through ADR-004
+- [x] React, TypeScript, and Vite frontend selected through ADR-005
+- [x] Frontend UI Specification v1 and root design system accepted
+- [x] Separate frontend API client and single-screen MVP workflow implemented and verified
 - [x] Job Persistence Specification v1 accepted
 - [x] Framework-independent domain types and backend protocol
 - [x] Offline fake generation backend
@@ -31,7 +34,6 @@
 
 ## Explicitly undecided
 
-- Frontend framework
 - Authentication and deployment platform
 - Production model/checkpoint selection
 - Production GPU resource profile and sampler tuning

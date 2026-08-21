@@ -54,3 +54,9 @@ tmp/
 htmlcov/
 coverage.xml
 
+# Frontend and local tooling
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.tsbuildinfo
+work/

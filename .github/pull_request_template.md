@@ -16,6 +16,11 @@ Describe the user-visible or operational result.
 - [ ] `ruff check .`
 - [ ] `mypy`
 - [ ] `pytest -m "not gpu"`
+- [ ] `cd frontend && npm ci`
+- [ ] `cd frontend && npm run format`
+- [ ] `cd frontend && npm run lint`
+- [ ] `cd frontend && npm run typecheck`
+- [ ] `cd frontend && npm test`
+- [ ] `cd frontend && npm run build`
 - [ ] No unrelated files changed
 - [ ] Documentation/contracts updated where required
-
