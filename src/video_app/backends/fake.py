@@ -16,7 +16,7 @@ from video_app.domain.models import (
     ModelCapability,
     Progress,
 )
-from video_app.domain.ports import GenerationContext
+from video_app.domain.ports import BackendCancelledError, GenerationContext
 
 
 class FakeBackendError(RuntimeError):
@@ -124,7 +124,7 @@ class FakeBackend:
         try:
             for step in range(1, self.steps + 1):
                 if await context.is_cancellation_requested():
-                    raise asyncio.CancelledError
+                    raise BackendCancelledError
                 if self.step_delay_seconds:
                     await asyncio.sleep(self.step_delay_seconds)
                 await context.report_progress(
@@ -138,7 +138,7 @@ class FakeBackend:
                     raise FakeBackendError(f"configured failure after step {step}")
 
             if await context.is_cancellation_requested():
-                raise asyncio.CancelledError
+                raise BackendCancelledError
             payload = _placeholder_mp4(request)
             await asyncio.to_thread(_write_atomic, partial_path, final_path, payload)
             return BackendOutput(
@@ -151,4 +151,3 @@ class FakeBackend:
             await asyncio.to_thread(_remove_if_present, partial_path)
             await asyncio.to_thread(_remove_if_present, final_path)
             raise
-

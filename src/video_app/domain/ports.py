@@ -16,6 +16,10 @@ ProgressReporter = Callable[[Progress], Awaitable[None]]
 CancellationProbe = Callable[[], Awaitable[bool]]
 
 
+class BackendCancelledError(Exception):
+    """Raised when a backend cooperatively stops after an application cancellation."""
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationContext:
     """Worker-owned callbacks supplied to a generation backend."""
@@ -54,4 +58,3 @@ class GenerationBackend(Protocol):
     ) -> BackendOutput:
         """Generate one temporary video while honoring progress and cancellation."""
         ...
-

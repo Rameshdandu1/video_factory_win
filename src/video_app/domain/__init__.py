@@ -15,10 +15,11 @@ from video_app.domain.models import (
     Resolution,
     normalize_request,
 )
-from video_app.domain.ports import GenerationBackend, GenerationContext
+from video_app.domain.ports import BackendCancelledError, GenerationBackend, GenerationContext
 
 __all__ = [
     "BackendOutput",
+    "BackendCancelledError",
     "DomainValidationError",
     "ErrorCode",
     "Failure",
@@ -36,4 +37,3 @@ __all__ = [
     "Resolution",
     "normalize_request",
 ]
-

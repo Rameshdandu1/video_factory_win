@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +12,7 @@ from video_app.domain.models import (
     Progress,
     Resolution,
 )
-from video_app.domain.ports import GenerationBackend, GenerationContext
+from video_app.domain.ports import BackendCancelledError, GenerationBackend, GenerationContext
 
 RESOLUTION = Resolution(832, 480)
 CAPABILITY = ModelCapability(
@@ -86,7 +85,7 @@ class FakeBackendTests(unittest.IsolatedAsyncioTestCase):
             checks += 1
             return checks >= 2
 
-        with self.assertRaises(asyncio.CancelledError):
+        with self.assertRaises(BackendCancelledError):
             await self.backend(steps=3).generate(
                 REQUEST,
                 GenerationContext("job-1", report, cancel_during_generation),
