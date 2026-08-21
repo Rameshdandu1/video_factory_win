@@ -7,11 +7,11 @@
 - [x] Wan2.1 adapter boundary decision
 - [x] MVP Requirements v1 accepted
 - [x] Generation Contract v1 accepted
+- [x] FastAPI transport framework selected through ADR-002
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Select API framework through an ADR
 - [ ] Select queue and persistence through ADRs
 - [ ] Implement domain types and backend protocol
 - [ ] Implement an offline fake backend
@@ -21,7 +21,6 @@
 ## Explicitly undecided
 
 - Frontend framework
-- API framework
 - Queue/broker technology
 - Database and object storage
 - Authentication and deployment platform

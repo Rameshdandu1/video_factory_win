@@ -8,10 +8,15 @@ version = "0.0.0"
 description = "Application layer for a Wan2.1-backed video generation product"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
-dependencies = []
+dependencies = [
+  "fastapi==0.141.1",
+  "pydantic==2.13.4",
+  "uvicorn==0.51.0",
+]
 
 [project.optional-dependencies]
 dev = [
+  "httpx==0.28.1",
   "mypy>=1.11,<2",
   "pytest>=8.3,<9",
   "ruff>=0.6,<1",
@@ -41,4 +46,3 @@ python_version = "3.10"
 strict = true
 files = ["src", "tests"]
 warn_unreachable = true
-

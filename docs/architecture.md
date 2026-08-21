@@ -14,7 +14,7 @@ infrastructure/  persistence, queue, filesystem, and external adapters
 backends/        video-generation backend adapters
 ```
 
-The future frontend is a separate client of the API. Its framework is intentionally undecided.
+The future frontend is a separate client of the API. Its framework is intentionally undecided. The HTTP transport uses FastAPI under ADR-002.
 
 ## Dependency direction
 
@@ -42,7 +42,7 @@ Owns use cases such as submit, cancel, inspect, and retrieve output. It coordina
 
 ### `api/`
 
-Owns HTTP/WebSocket transport, authentication hooks, validation mapping, and serialization. Handlers call one application use case and contain no model, persistence, job, or filesystem logic.
+Owns FastAPI HTTP transport, Pydantic request/response models, authentication hooks, validation mapping, and serialization. Handlers call one application use case and contain no model, persistence, job, or filesystem logic. Transport models map explicitly to domain models and never become domain types.
 
 ### `infrastructure/`
 
@@ -56,6 +56,8 @@ Owns adapters for generation engines. `backends/wan21/` is the only first-party 
 
 The API validates and enqueues. A GPU worker loads Wan2.1, claims bounded work, reports truthful state, writes output atomically, and always releases temporary/GPU resources. The API process must remain usable without CUDA or model weights.
 
+FastAPI `BackgroundTasks`, route handlers, and lifespan hooks must not execute generation. The API composition root constructs application use cases and concrete ports; it is the only location that wires the transport to implementations.
+
 ## Stable contracts
 
 Contracts documented in `docs/contracts/generation.md` are stable. Renaming fields, changing meanings, or removing states requires a versioned migration and an accepted ADR.
@@ -63,4 +65,3 @@ Contracts documented in `docs/contracts/generation.md` are stable. Renaming fiel
 ## Enforcement
 
 `tests/architecture/test_dependencies.py` checks import direction without importing application modules. CI runs architecture tests, unit tests, linting, formatting verification, and strict type checking.
-
