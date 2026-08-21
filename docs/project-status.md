@@ -8,11 +8,13 @@
 - [x] MVP Requirements v1 accepted
 - [x] Generation Contract v1 accepted
 - [x] FastAPI transport framework selected through ADR-002
+- [x] PostgreSQL job store and durable queue selected through ADR-003
+- [x] Local MVP artifact storage selected through ADR-004
+- [x] Job Persistence Specification v1 accepted
 - [x] Static-analysis, architecture-test, and CI scaffolding
 
 ## Next
 
-- [ ] Select queue and persistence through ADRs
 - [ ] Implement domain types and backend protocol
 - [ ] Implement an offline fake backend
 - [ ] Deliver one text-to-video job vertical slice
@@ -21,7 +23,5 @@
 ## Explicitly undecided
 
 - Frontend framework
-- Queue/broker technology
-- Database and object storage
 - Authentication and deployment platform
 - Production model/checkpoint selection

@@ -46,7 +46,7 @@ Owns FastAPI HTTP transport, Pydantic request/response models, authentication ho
 
 ### `infrastructure/`
 
-Owns concrete job repositories, queues, object/filesystem storage, clocks, identifiers, telemetry, and configuration sources. Implementations satisfy domain/application ports and do not contain generation policy.
+Owns the PostgreSQL job repository/queue, local artifact storage, clocks, identifiers, telemetry, and configuration sources under ADR-003 and ADR-004. SQLAlchemy, asyncpg, Alembic, and filesystem details remain inside this layer. Implementations satisfy domain/application ports and do not contain generation policy.
 
 ### `backends/`
 
@@ -57,6 +57,8 @@ Owns adapters for generation engines. `backends/wan21/` is the only first-party 
 The API validates and enqueues. A GPU worker loads Wan2.1, claims bounded work, reports truthful state, writes output atomically, and always releases temporary/GPU resources. The API process must remain usable without CUDA or model weights.
 
 FastAPI `BackgroundTasks`, route handlers, and lifespan hooks must not execute generation. The API composition root constructs application use cases and concrete ports; it is the only location that wires the transport to implementations.
+
+PostgreSQL is the authoritative job store and durable queue. Workers claim with short `FOR UPDATE SKIP LOCKED` transactions, execute outside the transaction, and use renewable lease tokens for all later writes. Polling guarantees correctness; database notifications may only reduce wake-up latency. Generated media is written atomically through the storage port to a configured local root for the MVP, while PostgreSQL stores only opaque storage keys and metadata.
 
 ## Stable contracts
 

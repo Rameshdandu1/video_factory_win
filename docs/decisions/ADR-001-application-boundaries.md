@@ -12,5 +12,4 @@ Use a modular monolith for product logic and an independent GPU worker. Own stab
 
 ## Consequences
 
-Normal development and unit tests require no model download or GPU. The adapter adds translation code, and end-to-end behavior still requires marked GPU tests. Runtime frameworks, queue technology, and persistence technology remain undecided and require later ADRs.
-
+Normal development and unit tests require no model download or GPU. The adapter adds translation code, and end-to-end behavior still requires marked GPU tests. Runtime framework, queue, persistence, and storage choices require later ADRs; these choices were subsequently made in ADR-002, ADR-003, and ADR-004.
