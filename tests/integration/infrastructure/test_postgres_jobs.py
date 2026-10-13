@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from video_app.application.ports import JobLease, LeaseLostError, QueueFullError
@@ -19,10 +20,20 @@ from video_app.domain.models import (
     GenerationResult,
     Progress,
     Resolution,
+    RoughCutItem,
+    RoughCutManifest,
+    RoughCutSource,
+    TimelineRenderItem,
+    TimelineRenderManifest,
 )
 from video_app.infrastructure.database import DatabaseSettings, create_database_engine
 from video_app.infrastructure.postgres_jobs import PostgresJobRepository
-from video_app.infrastructure.schema import generation_jobs, metadata
+from video_app.infrastructure.schema import (
+    generation_jobs,
+    metadata,
+    projects,
+    timeline_revisions,
+)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
@@ -54,6 +65,83 @@ def _result(created_at: datetime) -> GenerationResult:
         size_bytes=1024,
         sha256="a" * 64,
         created_at=created_at,
+    )
+
+
+def _rough_cut_job(job_id: str) -> GenerationJob:
+    manifest = RoughCutManifest.create(
+        owner_id="owner-rough-cut",
+        project_id="project-rough-cut-job-test",
+        workspace_fingerprint="a" * 64,
+        width=1280,
+        height=720,
+        fps_numerator=24,
+        fps_denominator=1,
+        total_duration_ms=900_000,
+        required_backend="ffmpeg-rough-cut",
+        required_backend_revision="ffmpeg-rough-cut-v1",
+        items=(
+            RoughCutItem(
+                scene_id="scene-one",
+                scene_version=1,
+                scene_fingerprint="b" * 64,
+                scene_position=0,
+                shot_id="shot-one",
+                shot_version=1,
+                shot_fingerprint="c" * 64,
+                shot_position=0,
+                duration_ms=900_000,
+                storyboard=RoughCutSource("image-one", 1, "d" * 64, "uploads/image.png"),
+                dialogue=RoughCutSource("audio-one", 1, "e" * 64, "uploads/audio.wav"),
+            ),
+        ),
+    )
+    return GenerationJob.queued(
+        job_id,
+        GenerationRequest(
+            prompt="Approved rough cut",
+            model="ffmpeg-rough-cut",
+            mode=GenerationMode.ROUGH_CUT,
+            resolution=Resolution(1280, 720),
+            frame_count=21_600,
+            seed=0,
+            rough_cut=manifest,
+        ),
+        NOW,
+        idempotency_key="rough-cut-request-one",
+    )
+
+
+def _timeline_render_job(job_id: str) -> GenerationJob:
+    manifest = TimelineRenderManifest.create(
+        owner_id="owner-timeline-render",
+        project_id="project-timeline-render-job-test",
+        timeline_id="timeline-render-job-test",
+        timeline_revision=1,
+        timeline_fingerprint="f" * 64,
+        width=1280,
+        height=720,
+        fps_numerator=24,
+        fps_denominator=1,
+        total_duration_ms=1_000,
+        required_backend="ffmpeg-timeline-render",
+        required_backend_revision="ffmpeg-timeline-render-v1",
+        items=(TimelineRenderItem("title_card", 0, 1_000, 0, text="తెలుగు"),),
+        captions=(),
+    )
+    return GenerationJob.queued(
+        job_id,
+        GenerationRequest(
+            prompt="Approved timeline",
+            model="ffmpeg-timeline-render",
+            mode=GenerationMode.TIMELINE_RENDER,
+            resolution=Resolution(1280, 720),
+            frame_count=24,
+            seed=0,
+            timeline_render=manifest,
+        ),
+        NOW,
+        idempotency_key="timeline-render-request-one",
     )
 
 
@@ -91,6 +179,8 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
             token=token,
             backend="fake",
             model_revision="test-revision",
+            supported_models=frozenset({"wan21-t2v"}),
+            supported_modes=frozenset({GenerationMode.TEXT_TO_VIDEO}),
             now=now,
             expires_at=expires_at,
         )
@@ -111,6 +201,151 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(sum(isinstance(item, GenerationJob) for item in outcomes), 2)
         self.assertEqual(sum(isinstance(item, QueueFullError) for item in outcomes), 1)
+
+    async def test_rough_cut_manifest_round_trips_and_only_matching_worker_claims(self) -> None:
+        async with self.engine.begin() as connection:
+            await connection.execute(
+                projects.delete().where(projects.c.id == "project-rough-cut-job-test")
+            )
+            await connection.execute(
+                sa.insert(projects).values(
+                    id="project-rough-cut-job-test",
+                    owner_id="owner-rough-cut",
+                    version=1,
+                    state="draft",
+                    title="Rough-cut queue test",
+                    language="te",
+                    mode="long",
+                    target_duration_ms=900_000,
+                    aspect_ratio="16:9",
+                    export_settings={
+                        "width": 1280,
+                        "height": 720,
+                        "fps_numerator": 24,
+                        "fps_denominator": 1,
+                    },
+                    providers={},
+                    budget_policy={},
+                    preset="telugu_short_film_900",
+                    titles_and_credits_within_target=True,
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+        queued = await self.repository.enqueue(_rough_cut_job("rough-cut-job"))
+        stored = await self.repository.get(queued.id)
+        self.assertEqual(stored.request.rough_cut, queued.request.rough_cut)
+        self.assertEqual(
+            await self.repository.claim_next(
+                worker_id="wrong-worker",
+                attempt_id="wrong-attempt",
+                token="wrong-token",
+                backend="fake",
+                model_revision="test-revision",
+                supported_models=frozenset({"ffmpeg-rough-cut"}),
+                supported_modes=frozenset({GenerationMode.ROUGH_CUT}),
+                now=NOW + timedelta(seconds=1),
+                expires_at=NOW + timedelta(seconds=61),
+            ),
+            None,
+        )
+        lease = await self.repository.claim_next(
+            worker_id="rough-worker",
+            attempt_id="rough-attempt",
+            token="rough-token",
+            backend="ffmpeg-rough-cut",
+            model_revision="ffmpeg-rough-cut-v1",
+            supported_models=frozenset({"ffmpeg-rough-cut"}),
+            supported_modes=frozenset({GenerationMode.ROUGH_CUT}),
+            now=NOW + timedelta(seconds=2),
+            expires_at=NOW + timedelta(seconds=62),
+        )
+        self.assertIsNotNone(lease)
+
+    async def test_timeline_render_manifest_round_trips_and_routes_exact_worker(self) -> None:
+        async with self.engine.begin() as connection:
+            await connection.execute(
+                timeline_revisions.delete().where(
+                    timeline_revisions.c.id == "timeline-render-job-test"
+                )
+            )
+            await connection.execute(
+                projects.delete().where(projects.c.id == "project-timeline-render-job-test")
+            )
+            await connection.execute(
+                sa.insert(projects).values(
+                    id="project-timeline-render-job-test",
+                    owner_id="owner-timeline-render",
+                    version=1,
+                    state="draft",
+                    title="Timeline render queue test",
+                    language="te",
+                    mode="short",
+                    target_duration_ms=1_000,
+                    aspect_ratio="16:9",
+                    export_settings={
+                        "width": 1280,
+                        "height": 720,
+                        "fps_numerator": 24,
+                        "fps_denominator": 1,
+                    },
+                    providers={},
+                    budget_policy={},
+                    preset="standard",
+                    titles_and_credits_within_target=True,
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await connection.execute(
+                sa.insert(timeline_revisions).values(
+                    id="timeline-render-job-test",
+                    project_id="project-timeline-render-job-test",
+                    owner_id="owner-timeline-render",
+                    revision=1,
+                    duration_ms=1_000,
+                    items=[
+                        {
+                            "kind": "title_card",
+                            "start_ms": 0,
+                            "duration_ms": 1_000,
+                            "layer": 0,
+                            "asset_id": None,
+                            "text": "తెలుగు",
+                        }
+                    ],
+                    fingerprint="f" * 64,
+                    created_at=NOW,
+                    approved_at=NOW,
+                )
+            )
+        queued = await self.repository.enqueue(_timeline_render_job("timeline-render-job"))
+        stored = await self.repository.get(queued.id)
+        self.assertEqual(stored.request.timeline_render, queued.request.timeline_render)
+        wrong = await self.repository.claim_next(
+            worker_id="wrong-worker",
+            attempt_id="wrong-attempt",
+            token="wrong-token",
+            backend="fake",
+            model_revision="test-revision",
+            supported_models=frozenset({"ffmpeg-timeline-render"}),
+            supported_modes=frozenset({GenerationMode.TIMELINE_RENDER}),
+            now=NOW + timedelta(seconds=1),
+            expires_at=NOW + timedelta(seconds=61),
+        )
+        self.assertIsNone(wrong)
+        lease = await self.repository.claim_next(
+            worker_id="timeline-worker",
+            attempt_id="timeline-attempt",
+            token="timeline-token",
+            backend="ffmpeg-timeline-render",
+            model_revision="ffmpeg-timeline-render-v1",
+            supported_models=frozenset({"ffmpeg-timeline-render"}),
+            supported_modes=frozenset({GenerationMode.TIMELINE_RENDER}),
+            now=NOW + timedelta(seconds=2),
+            expires_at=NOW + timedelta(seconds=62),
+        )
+        self.assertIsNotNone(lease)
 
     async def test_concurrent_workers_claim_distinct_oldest_jobs(self) -> None:
         await self.repository.enqueue(_job("job-a", created_at=NOW))
@@ -138,7 +373,10 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
             )
         with self.assertRaises(LeaseLostError):
             await self.repository.succeed(
-                stale, _result(NOW + timedelta(seconds=2)), NOW + timedelta(seconds=2)
+                stale,
+                _result(NOW + timedelta(seconds=2)),
+                None,
+                NOW + timedelta(seconds=2),
             )
         with self.assertRaises(LeaseLostError):
             await self.repository.fail(
@@ -164,7 +402,10 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(LeaseLostError):
             await self.repository.succeed(
-                lease, _result(NOW + timedelta(seconds=3)), NOW + timedelta(seconds=3)
+                lease,
+                _result(NOW + timedelta(seconds=3)),
+                None,
+                NOW + timedelta(seconds=3),
             )
         cancelled = await self.repository.confirm_cancelled(lease, NOW + timedelta(seconds=3))
         self.assertEqual(cancelled.status, JobStatus.CANCELLED)

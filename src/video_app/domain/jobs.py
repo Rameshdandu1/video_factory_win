@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import Enum
 
 from video_app.domain.models import (
+    ConditioningEvidence,
     Failure,
     GenerationRequest,
     GenerationResult,
@@ -58,6 +59,8 @@ class GenerationJob:
     result: GenerationResult | None = None
     failure: Failure | None = None
     cancellation_requested_at: datetime | None = None
+    idempotency_key: str | None = None
+    conditioning_evidence: ConditioningEvidence | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.id, "job id")
@@ -83,6 +86,10 @@ class GenerationJob:
         ):
             if value is not None and value > self.updated_at:
                 raise ValueError(f"{field} cannot follow updated_at")
+        if self.idempotency_key is not None:
+            _require_non_empty(self.idempotency_key, "idempotency key")
+            if len(self.idempotency_key) > 200:
+                raise ValueError("idempotency key must contain at most 200 characters")
         self._validate_state_shape()
 
     def _validate_state_shape(self) -> None:
@@ -97,6 +104,7 @@ class GenerationJob:
                     self.progress,
                     self.result,
                     self.failure,
+                    self.conditioning_evidence,
                 )
             ):
                 raise ValueError("queued job contains execution or terminal data")
@@ -105,6 +113,8 @@ class GenerationJob:
                 raise ValueError("running job requires execution identity and start time")
             if self.completed_at is not None or self.result is not None or self.failure is not None:
                 raise ValueError("running job contains terminal data")
+            if self.conditioning_evidence is not None:
+                raise ValueError("running job cannot contain conditioning evidence")
         elif self.status is JobStatus.SUCCEEDED:
             result = self.result
             if (
@@ -120,9 +130,27 @@ class GenerationJob:
                 )
             if (
                 result.resolution != self.request.resolution
-                or result.frame_count != self.request.frame_count
+                and self.request.image_conditioning is None
             ):
                 raise ValueError("result dimensions and frames must match the request")
+            if result.frame_count != self.request.frame_count:
+                raise ValueError("result frame count must match the request")
+            if self.request.image_conditioning is not None:
+                evidence = self.conditioning_evidence
+                if evidence is None:
+                    raise ValueError("image-conditioned success requires input evidence")
+                if evidence.source_sha256 != self.request.image_conditioning.source_asset_sha256:
+                    raise ValueError("conditioning evidence must match the frozen source")
+                reference = self.request.image_conditioning.reference_video
+                if reference is not None:
+                    if evidence.reference_source_sha256 != reference.source_asset_sha256:
+                        raise ValueError(
+                            "reference conditioning evidence must match the frozen source"
+                        )
+                elif evidence.reference_source_sha256 is not None:
+                    raise ValueError("plain image generation cannot contain reference evidence")
+            elif self.conditioning_evidence is not None:
+                raise ValueError("text-to-video success cannot contain conditioning evidence")
         elif self.status is JobStatus.FAILED:
             failure = self.failure
             if self.completed_at is None or failure is None or self.result is not None:
@@ -138,13 +166,21 @@ class GenerationJob:
             raise ValueError("cancelled job requires cancellation and no terminal payload")
 
     @classmethod
-    def queued(cls, job_id: str, request: GenerationRequest, now: datetime) -> GenerationJob:
+    def queued(
+        cls,
+        job_id: str,
+        request: GenerationRequest,
+        now: datetime,
+        *,
+        idempotency_key: str | None = None,
+    ) -> GenerationJob:
         return cls(
             id=job_id,
             request=request,
             status=JobStatus.QUEUED,
             created_at=now,
             updated_at=now,
+            idempotency_key=idempotency_key,
         )
 
     def _require_transition(self, destination: JobStatus) -> None:
@@ -206,7 +242,12 @@ class GenerationJob:
             progress=None,
         )
 
-    def succeed(self, now: datetime, result: GenerationResult) -> GenerationJob:
+    def succeed(
+        self,
+        now: datetime,
+        result: GenerationResult,
+        conditioning_evidence: ConditioningEvidence | None = None,
+    ) -> GenerationJob:
         self._require_transition(JobStatus.SUCCEEDED)
         self._require_current_or_later(now)
         if self.cancellation_requested_at is not None:
@@ -218,6 +259,7 @@ class GenerationJob:
             completed_at=now,
             progress=None,
             result=result,
+            conditioning_evidence=conditioning_evidence,
         )
 
     def fail(self, now: datetime, failure: Failure) -> GenerationJob:

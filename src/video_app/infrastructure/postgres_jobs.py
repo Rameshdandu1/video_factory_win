@@ -7,13 +7,14 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from video_app.application.ports import (
+    IdempotencyConflictError,
     JobLease,
     JobNotFoundError,
     JobPage,
@@ -22,14 +23,25 @@ from video_app.application.ports import (
 )
 from video_app.domain.jobs import GenerationJob, JobStatus
 from video_app.domain.models import (
+    ConditioningEvidence,
+    ControlledVideoOperation,
     DomainValidationError,
     ErrorCode,
     Failure,
     GenerationMode,
     GenerationRequest,
     GenerationResult,
+    ImageConditioning,
     Progress,
+    ReferenceVideoConditioning,
     Resolution,
+    RoughCutItem,
+    RoughCutManifest,
+    RoughCutSource,
+    TimelineRenderCaption,
+    TimelineRenderItem,
+    TimelineRenderManifest,
+    TimelineRenderSource,
 )
 from video_app.infrastructure.schema import generation_jobs
 
@@ -58,7 +70,8 @@ def _optional_utc(value: datetime | None) -> datetime | None:
 
 def _request_values(job: GenerationJob) -> dict[str, Any]:
     request = job.request
-    return {
+    conditioning = request.image_conditioning
+    values: dict[str, Any] = {
         "id": job.id,
         "version": 1,
         "status": job.status.value,
@@ -71,10 +84,215 @@ def _request_values(job: GenerationJob) -> dict[str, Any]:
         "height": request.height,
         "frame_count": request.frame_count,
         "seed": request.seed,
+        "idempotency_key": job.idempotency_key,
     }
+    if conditioning is not None:
+        values.update(
+            conditioning_owner_id=conditioning.owner_id,
+            conditioning_project_id=conditioning.project_id,
+            conditioning_shot_id=conditioning.shot_id,
+            conditioning_shot_version=conditioning.shot_version,
+            conditioning_composition_id=conditioning.composition_id,
+            conditioning_composition_revision=conditioning.composition_revision,
+            conditioning_composition_fingerprint=conditioning.composition_fingerprint,
+            conditioning_source_asset_id=conditioning.source_asset_id,
+            conditioning_source_asset_version=conditioning.source_asset_version,
+            conditioning_source_asset_sha256=conditioning.source_asset_sha256,
+            conditioning_source_storage_key=conditioning.source_storage_key,
+            conditioning_source_width=conditioning.source_width,
+            conditioning_source_height=conditioning.source_height,
+            conditioning_required_backend=conditioning.required_backend,
+            conditioning_required_backend_revision=conditioning.required_backend_revision,
+            conditioning_manifest_fingerprint=conditioning.manifest_fingerprint,
+        )
+        reference = conditioning.reference_video
+        if reference is not None:
+            values.update(
+                conditioning_reference_guidance_id=reference.guidance_id,
+                conditioning_reference_guidance_revision=reference.guidance_revision,
+                conditioning_reference_guidance_fingerprint=reference.guidance_fingerprint,
+                conditioning_reference_purpose=reference.purpose,
+                conditioning_reference_asset_id=reference.source_asset_id,
+                conditioning_reference_asset_version=reference.source_asset_version,
+                conditioning_reference_asset_sha256=reference.source_asset_sha256,
+                conditioning_reference_storage_key=reference.source_storage_key,
+                conditioning_reference_trim_start_ms=reference.trim_start_ms,
+                conditioning_reference_trim_end_ms=reference.trim_end_ms,
+                conditioning_controlled_operation=reference.operation.value,
+                conditioning_preserve_environment=reference.preserve_environment,
+                conditioning_constraint_plan_fingerprint=reference.constraint_plan_fingerprint,
+            )
+    rough_cut = request.rough_cut
+    if rough_cut is not None:
+        values.update(
+            rough_cut_project_id=rough_cut.project_id,
+            rough_cut_workspace_fingerprint=rough_cut.workspace_fingerprint,
+            rough_cut_required_backend=rough_cut.required_backend,
+            rough_cut_required_backend_revision=rough_cut.required_backend_revision,
+            rough_cut_manifest_fingerprint=rough_cut.manifest_fingerprint,
+            rough_cut_manifest=rough_cut.payload(),
+        )
+    timeline_render = request.timeline_render
+    if timeline_render is not None:
+        values.update(
+            timeline_render_project_id=timeline_render.project_id,
+            timeline_render_timeline_id=timeline_render.timeline_id,
+            timeline_render_timeline_revision=timeline_render.timeline_revision,
+            timeline_render_timeline_fingerprint=timeline_render.timeline_fingerprint,
+            timeline_render_required_backend=timeline_render.required_backend,
+            timeline_render_required_backend_revision=(timeline_render.required_backend_revision),
+            timeline_render_manifest_fingerprint=timeline_render.manifest_fingerprint,
+            timeline_render_manifest=timeline_render.payload(),
+        )
+    return values
+
+
+def _source_from_json(value: object) -> RoughCutSource:
+    payload = cast(dict[str, Any], value)
+    return RoughCutSource(
+        asset_id=payload["asset_id"],
+        asset_version=payload["asset_version"],
+        sha256=payload["sha256"],
+        storage_key=payload["storage_key"],
+    )
+
+
+def _rough_cut_from_json(value: object, manifest_fingerprint: str) -> RoughCutManifest:
+    payload = cast(dict[str, Any], value)
+    items = tuple(
+        RoughCutItem(
+            scene_id=item["scene_id"],
+            scene_version=item["scene_version"],
+            scene_fingerprint=item["scene_fingerprint"],
+            scene_position=item["scene_position"],
+            shot_id=item["shot_id"],
+            shot_version=item["shot_version"],
+            shot_fingerprint=item["shot_fingerprint"],
+            shot_position=item["shot_position"],
+            duration_ms=item["duration_ms"],
+            storyboard=_source_from_json(item["storyboard"]),
+            dialogue=_source_from_json(item["dialogue"]),
+        )
+        for item in cast(list[dict[str, Any]], payload["items"])
+    )
+    return RoughCutManifest(
+        owner_id=payload["owner_id"],
+        project_id=payload["project_id"],
+        workspace_fingerprint=payload["workspace_fingerprint"],
+        width=payload["width"],
+        height=payload["height"],
+        fps_numerator=payload["fps_numerator"],
+        fps_denominator=payload["fps_denominator"],
+        total_duration_ms=payload["total_duration_ms"],
+        required_backend=payload["required_backend"],
+        required_backend_revision=payload["required_backend_revision"],
+        items=items,
+        manifest_fingerprint=manifest_fingerprint,
+    )
+
+
+def _timeline_source_from_json(value: object) -> TimelineRenderSource:
+    payload = cast(dict[str, Any], value)
+    return TimelineRenderSource(
+        asset_id=payload["asset_id"],
+        asset_version=payload["asset_version"],
+        sha256=payload["sha256"],
+        storage_key=payload["storage_key"],
+        media_kind=payload["media_kind"],
+        measured_duration_ms=payload["measured_duration_ms"],
+    )
+
+
+def _timeline_render_from_json(value: object, manifest_fingerprint: str) -> TimelineRenderManifest:
+    payload = cast(dict[str, Any], value)
+    items = tuple(
+        TimelineRenderItem(
+            kind=item["kind"],
+            start_ms=item["start_ms"],
+            duration_ms=item["duration_ms"],
+            layer=item["layer"],
+            source=(None if item["source"] is None else _timeline_source_from_json(item["source"])),
+            text=item["text"],
+        )
+        for item in cast(list[dict[str, Any]], payload["items"])
+    )
+    captions = tuple(
+        TimelineRenderCaption(
+            start_ms=item["start_ms"],
+            end_ms=item["end_ms"],
+            text=item["text"],
+        )
+        for item in cast(list[dict[str, Any]], payload["captions"])
+    )
+    return TimelineRenderManifest(
+        owner_id=payload["owner_id"],
+        project_id=payload["project_id"],
+        timeline_id=payload["timeline_id"],
+        timeline_revision=payload["timeline_revision"],
+        timeline_fingerprint=payload["timeline_fingerprint"],
+        width=payload["width"],
+        height=payload["height"],
+        fps_numerator=payload["fps_numerator"],
+        fps_denominator=payload["fps_denominator"],
+        total_duration_ms=payload["total_duration_ms"],
+        required_backend=payload["required_backend"],
+        required_backend_revision=payload["required_backend_revision"],
+        items=items,
+        captions=captions,
+        manifest_fingerprint=manifest_fingerprint,
+    )
 
 
 def _row_to_job(row: RowMapping) -> GenerationJob:
+    conditioning = None
+    if row["conditioning_source_asset_id"] is not None:
+        reference = None
+        if row["conditioning_reference_guidance_id"] is not None:
+            reference = ReferenceVideoConditioning(
+                guidance_id=row["conditioning_reference_guidance_id"],
+                guidance_revision=row["conditioning_reference_guidance_revision"],
+                guidance_fingerprint=row["conditioning_reference_guidance_fingerprint"],
+                purpose=row["conditioning_reference_purpose"],
+                source_asset_id=row["conditioning_reference_asset_id"],
+                source_asset_version=row["conditioning_reference_asset_version"],
+                source_asset_sha256=row["conditioning_reference_asset_sha256"],
+                source_storage_key=row["conditioning_reference_storage_key"],
+                trim_start_ms=row["conditioning_reference_trim_start_ms"],
+                trim_end_ms=row["conditioning_reference_trim_end_ms"],
+                operation=ControlledVideoOperation(row["conditioning_controlled_operation"]),
+                preserve_environment=row["conditioning_preserve_environment"],
+                constraint_plan_fingerprint=row["conditioning_constraint_plan_fingerprint"],
+            )
+        conditioning = ImageConditioning(
+            owner_id=row["conditioning_owner_id"],
+            project_id=row["conditioning_project_id"],
+            shot_id=row["conditioning_shot_id"],
+            shot_version=row["conditioning_shot_version"],
+            composition_id=row["conditioning_composition_id"],
+            composition_revision=row["conditioning_composition_revision"],
+            composition_fingerprint=row["conditioning_composition_fingerprint"],
+            source_asset_id=row["conditioning_source_asset_id"],
+            source_asset_version=row["conditioning_source_asset_version"],
+            source_asset_sha256=row["conditioning_source_asset_sha256"],
+            source_storage_key=row["conditioning_source_storage_key"],
+            source_width=row["conditioning_source_width"],
+            source_height=row["conditioning_source_height"],
+            required_backend=row["conditioning_required_backend"],
+            required_backend_revision=row["conditioning_required_backend_revision"],
+            manifest_fingerprint=row["conditioning_manifest_fingerprint"],
+            reference_video=reference,
+        )
+    rough_cut = None
+    if row["rough_cut_manifest"] is not None:
+        rough_cut = _rough_cut_from_json(
+            row["rough_cut_manifest"], row["rough_cut_manifest_fingerprint"]
+        )
+    timeline_render = None
+    if row["timeline_render_manifest"] is not None:
+        timeline_render = _timeline_render_from_json(
+            row["timeline_render_manifest"],
+            row["timeline_render_manifest_fingerprint"],
+        )
     request = GenerationRequest(
         prompt=row["prompt"],
         model=row["model"],
@@ -82,6 +300,9 @@ def _row_to_job(row: RowMapping) -> GenerationJob:
         resolution=Resolution(row["width"], row["height"]),
         frame_count=row["frame_count"],
         seed=row["seed"],
+        image_conditioning=conditioning,
+        rough_cut=rough_cut,
+        timeline_render=timeline_render,
     )
     progress = None
     if row["progress_completed_units"] is not None:
@@ -111,6 +332,17 @@ def _row_to_job(row: RowMapping) -> GenerationJob:
             job_id=row["id"],
             correlation_id=row["failure_correlation_id"],
         )
+    conditioning_evidence = None
+    if row["conditioning_derivative_sha256"] is not None:
+        conditioning_evidence = ConditioningEvidence(
+            source_sha256=row["conditioning_source_asset_sha256"],
+            derivative_sha256=row["conditioning_derivative_sha256"],
+            derivative_width=row["conditioning_derivative_width"],
+            derivative_height=row["conditioning_derivative_height"],
+            reference_source_sha256=row["conditioning_reference_asset_sha256"],
+            reference_derivative_sha256=row["conditioning_reference_derivative_sha256"],
+            control_fingerprint=row["conditioning_control_fingerprint"],
+        )
     return GenerationJob(
         id=row["id"],
         request=request,
@@ -125,6 +357,8 @@ def _row_to_job(row: RowMapping) -> GenerationJob:
         result=result,
         failure=failure,
         cancellation_requested_at=_optional_utc(row["cancellation_requested_at"]),
+        idempotency_key=row["idempotency_key"],
+        conditioning_evidence=conditioning_evidence,
     )
 
 
@@ -199,6 +433,84 @@ class PostgresJobRepository:
                 sa.text("SELECT pg_advisory_xact_lock(:lock_key)"),
                 {"lock_key": _QUEUE_ADVISORY_LOCK},
             )
+            if job.idempotency_key is not None and job.request.image_conditioning is not None:
+                existing_row = (
+                    (
+                        await connection.execute(
+                            sa.select(generation_jobs).where(
+                                generation_jobs.c.conditioning_owner_id
+                                == job.request.image_conditioning.owner_id,
+                                generation_jobs.c.idempotency_key == job.idempotency_key,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing_row is not None:
+                    existing = _row_to_job(existing_row)
+                    existing_conditioning = existing.request.image_conditioning
+                    if (
+                        existing_conditioning is None
+                        or existing_conditioning.manifest_fingerprint
+                        != job.request.image_conditioning.manifest_fingerprint
+                    ):
+                        raise IdempotencyConflictError(
+                            "idempotency key is already bound to different inputs"
+                        )
+                    return existing
+            if job.idempotency_key is not None and job.request.rough_cut is not None:
+                existing_row = (
+                    (
+                        await connection.execute(
+                            sa.select(generation_jobs).where(
+                                generation_jobs.c.rough_cut_project_id
+                                == job.request.rough_cut.project_id,
+                                generation_jobs.c.idempotency_key == job.idempotency_key,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing_row is not None:
+                    existing = _row_to_job(existing_row)
+                    existing_manifest = existing.request.rough_cut
+                    if (
+                        existing_manifest is None
+                        or existing_manifest.manifest_fingerprint
+                        != job.request.rough_cut.manifest_fingerprint
+                    ):
+                        raise IdempotencyConflictError(
+                            "idempotency key is already bound to different inputs"
+                        )
+                    return existing
+            if job.idempotency_key is not None and job.request.timeline_render is not None:
+                existing_row = (
+                    (
+                        await connection.execute(
+                            sa.select(generation_jobs).where(
+                                generation_jobs.c.timeline_render_project_id
+                                == job.request.timeline_render.project_id,
+                                generation_jobs.c.idempotency_key == job.idempotency_key,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing_row is not None:
+                    existing = _row_to_job(existing_row)
+                    existing_timeline_manifest = existing.request.timeline_render
+                    if (
+                        existing_timeline_manifest is None
+                        or existing_timeline_manifest.manifest_fingerprint
+                        != job.request.timeline_render.manifest_fingerprint
+                    ):
+                        raise IdempotencyConflictError(
+                            "idempotency key is already bound to different inputs"
+                        )
+                    return existing
             queued_count = await connection.scalar(
                 sa.select(sa.func.count())
                 .select_from(generation_jobs)
@@ -219,12 +531,19 @@ class PostgresJobRepository:
         limit: int,
         cursor: str | None,
         status: JobStatus | None,
+        modes: frozenset[GenerationMode] | None = None,
     ) -> JobPage:
         if not 1 <= limit <= 100:
             raise DomainValidationError("job list limit must be between 1 and 100")
         statement = sa.select(generation_jobs)
         if status is not None:
             statement = statement.where(generation_jobs.c.status == status.value)
+        if modes is not None:
+            if not modes:
+                return JobPage(items=(), next_cursor=None)
+            statement = statement.where(
+                generation_jobs.c.mode.in_(tuple(mode.value for mode in modes))
+            )
         if cursor is not None:
             created_at, job_id = self._decode_cursor(cursor)
             statement = statement.where(
@@ -292,17 +611,49 @@ class PostgresJobRepository:
         token: str,
         backend: str,
         model_revision: str,
+        supported_models: frozenset[str],
+        supported_modes: frozenset[GenerationMode],
         now: datetime,
         expires_at: datetime,
     ) -> JobLease | None:
         if expires_at <= now:
             raise ValueError("lease expiry must follow claim time")
+        if not supported_models or not supported_modes:
+            return None
+        supported_mode_values = tuple(mode.value for mode in supported_modes)
         async with self._engine.begin() as connection:
             candidate_id = await connection.scalar(
                 sa.select(generation_jobs.c.id)
                 .where(
                     generation_jobs.c.status == JobStatus.QUEUED.value,
                     generation_jobs.c.cancellation_requested_at.is_(None),
+                    generation_jobs.c.model.in_(tuple(supported_models)),
+                    generation_jobs.c.mode.in_(supported_mode_values),
+                    sa.or_(
+                        generation_jobs.c.conditioning_required_backend.is_(None),
+                        generation_jobs.c.conditioning_required_backend == backend,
+                    ),
+                    sa.or_(
+                        generation_jobs.c.rough_cut_required_backend.is_(None),
+                        generation_jobs.c.rough_cut_required_backend == backend,
+                    ),
+                    sa.or_(
+                        generation_jobs.c.timeline_render_required_backend.is_(None),
+                        generation_jobs.c.timeline_render_required_backend == backend,
+                    ),
+                    sa.or_(
+                        generation_jobs.c.conditioning_required_backend_revision.is_(None),
+                        generation_jobs.c.conditioning_required_backend_revision == model_revision,
+                    ),
+                    sa.or_(
+                        generation_jobs.c.rough_cut_required_backend_revision.is_(None),
+                        generation_jobs.c.rough_cut_required_backend_revision == model_revision,
+                    ),
+                    sa.or_(
+                        generation_jobs.c.timeline_render_required_backend_revision.is_(None),
+                        generation_jobs.c.timeline_render_required_backend_revision
+                        == model_revision,
+                    ),
                 )
                 .order_by(generation_jobs.c.created_at, generation_jobs.c.id)
                 .limit(1)
@@ -397,6 +748,7 @@ class PostgresJobRepository:
         self,
         lease: JobLease,
         result: GenerationResult,
+        conditioning_evidence: ConditioningEvidence | None,
         now: datetime,
     ) -> GenerationJob:
         values = {
@@ -415,6 +767,19 @@ class PostgresJobRepository:
             "version": generation_jobs.c.version + 1,
             **_TERMINAL_LEASE_VALUES,
         }
+        if conditioning_evidence is not None:
+            values.update(
+                conditioning_derivative_sha256=conditioning_evidence.derivative_sha256,
+                conditioning_derivative_width=conditioning_evidence.derivative_width,
+                conditioning_derivative_height=conditioning_evidence.derivative_height,
+            )
+            if conditioning_evidence.reference_derivative_sha256 is not None:
+                values.update(
+                    conditioning_reference_derivative_sha256=(
+                        conditioning_evidence.reference_derivative_sha256
+                    ),
+                    conditioning_control_fingerprint=conditioning_evidence.control_fingerprint,
+                )
         return await self._terminal_update(lease, values, now=now, require_cancellation=False)
 
     async def fail(

@@ -704,6 +704,9 @@ describe('App', () => {
     await screen.findByRole('progressbar', { name: 'Generation progress' })
     const pollRegistrations = () =>
       setInterval.mock.calls.filter(([, timeout]) => timeout === 2_500)
+    await act(async () => {
+      await Promise.resolve()
+    })
     await waitFor(() => expect(pollRegistrations().length).toBeGreaterThan(0))
     const registrationsBeforeFilter = pollRegistrations().length
     await user.selectOptions(screen.getByLabelText('Filter jobs'), 'failed')

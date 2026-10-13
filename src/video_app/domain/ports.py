@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from video_app.domain.models import (
@@ -16,6 +17,7 @@ from video_app.domain.models import (
 
 ProgressReporter = Callable[[Progress], Awaitable[None]]
 CancellationProbe = Callable[[], Awaitable[bool]]
+InputResolver = Callable[[str], Awaitable[Path]]
 
 
 class BackendCancelledError(Exception):
@@ -31,6 +33,7 @@ class BackendFailureError(Exception):
             ErrorCode.MODEL_UNAVAILABLE,
             ErrorCode.INSUFFICIENT_RESOURCES,
             ErrorCode.GENERATION_FAILED,
+            ErrorCode.MEDIA_RENDER_FAILED,
         }
     )
 
@@ -49,6 +52,7 @@ class GenerationContext:
     job_id: str
     report_progress: ProgressReporter
     is_cancellation_requested: CancellationProbe
+    resolve_input: InputResolver | None = None
 
     def __post_init__(self) -> None:
         if not self.job_id or self.job_id.isspace():

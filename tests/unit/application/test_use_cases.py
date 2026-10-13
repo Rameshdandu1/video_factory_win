@@ -19,6 +19,7 @@ from video_app.backends.fake import FakeBackend
 from video_app.domain.jobs import GenerationJob, JobStatus
 from video_app.domain.models import (
     BackendOutput,
+    ConditioningEvidence,
     DomainValidationError,
     ErrorCode,
     Failure,
@@ -102,11 +103,14 @@ class MemoryRepository:
         limit: int,
         cursor: str | None,
         status: JobStatus | None,
+        modes: frozenset[GenerationMode] | None = None,
     ) -> JobPage:
         del cursor
         jobs = sorted(self.jobs.values(), key=lambda job: (job.created_at, job.id), reverse=True)
         if status is not None:
             jobs = [job for job in jobs if job.status is status]
+        if modes is not None:
+            jobs = [job for job in jobs if job.request.mode in modes]
         return JobPage(tuple(jobs[:limit]), None)
 
     async def request_cancellation(self, job_id: str, now: datetime) -> GenerationJob:
@@ -123,11 +127,19 @@ class MemoryRepository:
         token: str,
         backend: str,
         model_revision: str,
+        supported_models: frozenset[str],
+        supported_modes: frozenset[GenerationMode],
         now: datetime,
         expires_at: datetime,
     ) -> JobLease | None:
         queued = sorted(
-            (job for job in self.jobs.values() if job.status is JobStatus.QUEUED),
+            (
+                job
+                for job in self.jobs.values()
+                if job.status is JobStatus.QUEUED
+                and job.request.model in supported_models
+                and job.request.mode in supported_modes
+            ),
             key=lambda job: (job.created_at, job.id),
         )
         if not queued:
@@ -171,10 +183,11 @@ class MemoryRepository:
         self,
         lease: JobLease,
         result: GenerationResult,
+        conditioning_evidence: ConditioningEvidence | None,
         now: datetime,
     ) -> GenerationJob:
         current = self._owned(lease)
-        completed = current.succeed(now, result)
+        completed = current.succeed(now, result, conditioning_evidence)
         self.jobs[current.id] = completed
         return completed
 
@@ -229,6 +242,9 @@ class MemoryArtifacts:
 
     async def delete(self, storage_key: str) -> None:
         self.keys.discard(storage_key)
+
+    def resolve_for_read(self, storage_key: str) -> Path:
+        raise FileNotFoundError(storage_key)
 
 
 class BackendFailureBackend:

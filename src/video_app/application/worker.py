@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 from video_app.application.ports import (
     ArtifactStore,
@@ -28,6 +29,7 @@ _SAFE_BACKEND_FAILURE_MESSAGES = {
     ErrorCode.MODEL_UNAVAILABLE: "The configured video model is unavailable.",
     ErrorCode.INSUFFICIENT_RESOURCES: "The worker has insufficient resources for this job.",
     ErrorCode.GENERATION_FAILED: "Video generation failed.",
+    ErrorCode.MEDIA_RENDER_FAILED: "The approved rough cut could not be rendered.",
 }
 
 
@@ -54,12 +56,15 @@ class ProcessNextJob:
 
     async def _claim(self) -> JobLease | None:
         now = self.clock.now()
+        capabilities = tuple(item for item in self.backend.capabilities() if item.enabled)
         return await self.repository.claim_next(
             worker_id=self.worker_id,
             attempt_id=self.identifiers.new_attempt_id(),
             token=self.identifiers.new_lease_token(),
             backend=self.backend.name,
             model_revision=self.backend.revision,
+            supported_models=frozenset(item.model_id for item in capabilities),
+            supported_modes=frozenset(mode for item in capabilities for mode in item.modes),
             now=now,
             expires_at=now + self.lease_duration,
         )
@@ -118,7 +123,10 @@ class ProcessNextJob:
                     async with lease_lock:
                         active_lease = await self._heartbeat(active_lease, None)
 
-        context = GenerationContext(lease.job.id, report_progress, is_cancelled)
+        async def resolve_input(storage_key: str) -> Path:
+            return await asyncio.to_thread(self.artifacts.resolve_for_read, storage_key)
+
+        context = GenerationContext(lease.job.id, report_progress, is_cancelled, resolve_input)
         generation_task = asyncio.create_task(self.backend.generate(lease.job.request, context))
         heartbeat_task = asyncio.create_task(heartbeat_loop())
         output: BackendOutput | None = None
@@ -188,7 +196,12 @@ class ProcessNextJob:
             return await self.repository.fail(active_lease, failure, self.clock.now())
 
         try:
-            return await self.repository.succeed(active_lease, result, self.clock.now())
+            return await self.repository.succeed(
+                active_lease,
+                result,
+                output.conditioning_evidence,
+                self.clock.now(),
+            )
         except LeaseLostError:
             await self.artifacts.delete(result.storage_key)
             raise

@@ -1,6 +1,6 @@
 # Design System: Video Factory
 
-Status: Accepted for Frontend UI v1 on 2026-08-21
+Status: Accepted for Frontend UI v1; project and Telugu film workflow extensions accepted
 
 This file is the visual and interaction source of truth for the browser client. Read it with [Frontend UI Specification v1](docs/specifications/frontend-ui-v1.md) before making UI decisions. Deviations require explicit approval and a recorded rationale.
 
@@ -125,6 +125,14 @@ Status color always appears with the exact status word. Error and success region
 Do not solve hierarchy by wrapping every group in another card. Prefer a heading, spacing, and one separator.
 
 ## Layout
+
+### Workspace navigation
+
+The header exposes text-labelled **Quick clip** and **Projects** controls. Quick clip remains the
+default and preserves the v1 workflow. Projects uses the same shell, tokens, focus treatment, and
+responsive behavior; it is a functional workspace, not a marketing preview. Its project form makes
+language, short/long mode, duration, aspect ratio, and provider selections visible before creation.
+It must label the operating model **Self-hosted; infrastructure costs apply.**
 
 ### App shell
 

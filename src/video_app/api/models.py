@@ -35,6 +35,13 @@ class GenerationRequestModel(BaseModel):
             raise ValueError("prompt must contain between 1 and 2000 characters")
         return value
 
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, value: GenerationMode) -> GenerationMode:
+        if value is not GenerationMode.TEXT_TO_VIDEO:
+            raise ValueError("Generation Contract v1 supports text_to_video only")
+        return value
+
     @field_validator("model")
     @classmethod
     def validate_model(cls, value: str) -> str:

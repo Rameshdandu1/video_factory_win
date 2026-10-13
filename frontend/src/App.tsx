@@ -4,9 +4,12 @@ import type { JobStatus } from './api/contracts'
 import { GenerationForm } from './components/GenerationForm'
 import { JobDetail } from './components/JobDetail'
 import { JobQueue } from './components/JobQueue'
+import { ProjectsView } from './components/ProjectsView'
+import { FilmLibraryView } from './components/FilmLibraryView'
 import { useGenerationWorkspace } from './hooks/useGenerationWorkspace'
 
 export function App() {
+  const [view, setView] = useState<'quick' | 'projects' | 'library'>('quick')
   const [statusFilter, setStatusFilter] = useState<JobStatus | ''>('')
   const workspace = useGenerationWorkspace(statusFilter)
 
@@ -28,6 +31,29 @@ export function App() {
         </div>
 
         <div className="header-actions">
+          <nav className="workspace-switcher" aria-label="Workspace">
+            <button
+              type="button"
+              aria-current={view === 'quick' ? 'page' : undefined}
+              onClick={() => setView('quick')}
+            >
+              Quick clip
+            </button>
+            <button
+              type="button"
+              aria-current={view === 'projects' ? 'page' : undefined}
+              onClick={() => setView('projects')}
+            >
+              Projects
+            </button>
+            <button
+              type="button"
+              aria-current={view === 'library' ? 'page' : undefined}
+              onClick={() => setView('library')}
+            >
+              Film Library
+            </button>
+          </nav>
           <div className="connection-state" role="status" aria-live="polite">
             <span className="connection-state__dot" data-state={workspace.connection} />
             <span>
@@ -80,36 +106,42 @@ export function App() {
         </div>
       )}
 
-      <main id="workspace" className="workspace-grid">
-        <GenerationForm
-          models={workspace.models}
-          isLoadingModels={workspace.isLoadingModels}
-          isSubmitting={workspace.isSubmitting}
-          onSubmit={workspace.submitJob}
-        />
-        <JobDetail
-          job={workspace.selectedJob}
-          isCancelling={workspace.cancellingJobId === workspace.selectedJob?.id}
-          cancellationPending={
-            workspace.selectedJob === null
-              ? false
-              : workspace.cancellationPendingIds.has(workspace.selectedJob.id)
-          }
-          onCancel={workspace.cancelJob}
-        />
-        <JobQueue
-          jobs={workspace.jobs}
-          selectedJobId={workspace.selectedJob?.id ?? null}
-          statusFilter={statusFilter}
-          nextCursor={workspace.nextCursor}
-          isLoading={workspace.isLoadingJobs}
-          isRefreshing={workspace.isRefreshing}
-          isLoadingMore={workspace.isLoadingMore}
-          onSelect={workspace.selectJob}
-          onLoadMore={workspace.loadMore}
-          onStatusFilterChange={setStatusFilter}
-        />
-      </main>
+      {view === 'library' ? (
+        <FilmLibraryView />
+      ) : view === 'projects' ? (
+        <ProjectsView />
+      ) : (
+        <main id="workspace" className="workspace-grid">
+          <GenerationForm
+            models={workspace.models}
+            isLoadingModels={workspace.isLoadingModels}
+            isSubmitting={workspace.isSubmitting}
+            onSubmit={workspace.submitJob}
+          />
+          <JobDetail
+            job={workspace.selectedJob}
+            isCancelling={workspace.cancellingJobId === workspace.selectedJob?.id}
+            cancellationPending={
+              workspace.selectedJob === null
+                ? false
+                : workspace.cancellationPendingIds.has(workspace.selectedJob.id)
+            }
+            onCancel={workspace.cancelJob}
+          />
+          <JobQueue
+            jobs={workspace.jobs}
+            selectedJobId={workspace.selectedJob?.id ?? null}
+            statusFilter={statusFilter}
+            nextCursor={workspace.nextCursor}
+            isLoading={workspace.isLoadingJobs}
+            isRefreshing={workspace.isRefreshing}
+            isLoadingMore={workspace.isLoadingMore}
+            onSelect={workspace.selectJob}
+            onLoadMore={workspace.loadMore}
+            onStatusFilterChange={setStatusFilter}
+          />
+        </main>
+      )}
     </div>
   )
 }

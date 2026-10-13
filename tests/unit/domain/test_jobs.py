@@ -10,10 +10,13 @@ from video_app.domain.jobs import (
     JobStatus,
 )
 from video_app.domain.models import (
+    ConditioningEvidence,
     ErrorCode,
     Failure,
+    GenerationMode,
     GenerationRequest,
     GenerationResult,
+    ImageConditioning,
     Progress,
     Resolution,
 )
@@ -102,6 +105,55 @@ class JobLifecycleTests(unittest.TestCase):
                 JobStatus.CANCELLED: frozenset(),
             },
         )
+
+    def test_image_success_requires_matching_conditioning_evidence(self) -> None:
+        conditioning = ImageConditioning(
+            owner_id="owner",
+            project_id="project",
+            shot_id="shot",
+            shot_version=1,
+            composition_id="composition",
+            composition_revision=1,
+            composition_fingerprint="b" * 64,
+            source_asset_id="asset",
+            source_asset_version=1,
+            source_asset_sha256="c" * 64,
+            source_storage_key="uploads/input.png",
+            source_width=832,
+            source_height=480,
+            required_backend="wan22-ti2v",
+            required_backend_revision="wan22-revision",
+            manifest_fingerprint="d" * 64,
+        )
+        request = GenerationRequest(
+            "prompt",
+            "wan22-ti2v-5b",
+            Resolution(1280, 704),
+            81,
+            42,
+            GenerationMode.IMAGE_TO_VIDEO,
+            conditioning,
+        )
+        running = GenerationJob.queued(
+            "job-image", request, NOW, idempotency_key="request-one"
+        ).start(LATER, backend="wan22-ti2v", model_revision="wan22-revision")
+        output = GenerationResult(
+            storage_key="image.mp4",
+            media_type="video/mp4",
+            resolution=Resolution(1248, 704),
+            frame_count=81,
+            duration_seconds=None,
+            size_bytes=100,
+            sha256="e" * 64,
+            created_at=LATER,
+        )
+        with self.assertRaisesRegex(ValueError, "input evidence"):
+            running.succeed(LATER, output)
+        evidence = ConditioningEvidence("c" * 64, "f" * 64, 832, 480)
+        succeeded = running.succeed(LATER, output, evidence)
+        self.assertEqual(succeeded.conditioning_evidence, evidence)
+        assert succeeded.result is not None
+        self.assertEqual(succeeded.result.resolution, Resolution(1248, 704))
 
 
 if __name__ == "__main__":

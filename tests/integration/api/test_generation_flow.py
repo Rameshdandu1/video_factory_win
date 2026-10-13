@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from video_app.api.app import ApiServices, create_app
+from video_app.application.projects import CreateProject, GetProject, ListProjects, UpdateProject
 from video_app.application.use_cases import (
     CancelJob,
     GetJob,
@@ -25,13 +26,14 @@ from video_app.backends.fake import FakeBackend
 from video_app.domain.models import GenerationMode, ModelCapability, Resolution
 from video_app.infrastructure.database import DatabaseSettings, create_database_engine
 from video_app.infrastructure.postgres_jobs import PostgresJobRepository
+from video_app.infrastructure.postgres_projects import PostgresProjectRepository
 from video_app.infrastructure.runtime import (
     SecureIdentifiers,
     SecureSeedSource,
     StaticCapabilityProvider,
     UtcClock,
 )
-from video_app.infrastructure.schema import generation_jobs, metadata
+from video_app.infrastructure.schema import generation_jobs, metadata, projects
 from video_app.infrastructure.storage import LocalArtifactStore
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -62,6 +64,7 @@ class GenerationApiFlowTests(unittest.IsolatedAsyncioTestCase):
         async with self.engine.begin() as connection:
             await connection.run_sync(metadata.create_all)
             await connection.execute(generation_jobs.delete())
+            await connection.execute(projects.delete())
 
         self.temporary_directory = tempfile.TemporaryDirectory()
         root = Path(self.temporary_directory.name).resolve()
@@ -96,6 +99,17 @@ class GenerationApiFlowTests(unittest.IsolatedAsyncioTestCase):
             health_check=HealthCheck(repository),
             identifiers=identifiers,
             close=_noop_close,
+            create_project=CreateProject(
+                repository=PostgresProjectRepository(self.engine),
+                clock=clock,
+                identifiers=identifiers,
+                owner_id="integration-owner",
+            ),
+            get_project=GetProject(PostgresProjectRepository(self.engine), "integration-owner"),
+            list_projects=ListProjects(PostgresProjectRepository(self.engine), "integration-owner"),
+            update_project=UpdateProject(
+                PostgresProjectRepository(self.engine), clock, "integration-owner"
+            ),
         )
         self.process_next = ProcessNextJob(
             repository=repository,
@@ -195,6 +209,49 @@ class GenerationApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(response.status_code == 202 for response in accepted))
         self.assertEqual(queue_full.status_code, 429)
         self.assertEqual(queue_full.json()["code"], "QUEUE_FULL")
+
+    async def test_project_v2_create_list_update_and_revision_conflict(self) -> None:
+        draft = {
+            "title": "Customer and mechanic",
+            "language": "te",
+            "mode": "short",
+            "target_duration_ms": 30000,
+            "aspect_ratio": "9:16",
+            "export_settings": {
+                "width": 720,
+                "height": 1280,
+                "fps_numerator": 30,
+                "fps_denominator": 1,
+            },
+            "providers": {
+                "video": "wan21",
+                "speech": "uploaded",
+                "lip_sync": None,
+                "caption_alignment": None,
+            },
+            "budget_policy": {
+                "max_compute_seconds": 1800,
+                "max_cost_micros": None,
+                "automatic_expensive_retries": 0,
+            },
+        }
+        created = await self.client.post("/api/v2/projects", json=draft)
+        self.assertEqual(created.status_code, 201)
+        project = created.json()
+        self.assertEqual(project["version"], 1)
+        self.assertNotIn("owner_id", project)
+
+        listing = await self.client.get("/api/v2/projects")
+        self.assertEqual(listing.json()["items"][0]["id"], project["id"])
+
+        revised = dict(draft)
+        revised.update({"title": "Approved conversation", "expected_version": 1})
+        updated = await self.client.put(f"/api/v2/projects/{project['id']}", json=revised)
+        self.assertEqual(updated.json()["version"], 2)
+
+        conflict = await self.client.put(f"/api/v2/projects/{project['id']}", json=revised)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()["code"], "REVISION_CONFLICT")
 
 
 if __name__ == "__main__":

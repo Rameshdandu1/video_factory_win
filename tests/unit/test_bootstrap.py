@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, NoReturn
 from unittest.mock import patch
 
+from fastapi.routing import APIRoute
+
 from video_app.backends.fake import FakeBackend
 from video_app.backends.wan21.adapter import Wan21Backend
 from video_app.bootstrap import _build_generation_backend, create_api_app, worker_main
@@ -135,6 +137,54 @@ class ApiBackendIsolationTests(unittest.IsolatedAsyncioTestCase):
                     pass
 
             build_backend.assert_not_called()
+
+    async def test_api_composition_exposes_additive_reference_library_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            settings = RuntimeSettings.from_values(_settings_values(root))
+            app = create_api_app(settings)
+            paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
+            async with app.router.lifespan_context(app):
+                pass
+
+        self.assertIn("/api/v1/jobs", paths)
+        self.assertIn("/api/v2/projects", paths)
+        self.assertIn("/api/v2/library/assets", paths)
+        self.assertIn("/api/v2/library/assets/{asset_id}/inspect", paths)
+        self.assertIn("/api/v2/library/entities", paths)
+        self.assertIn("/api/v2/library/entities/{entity_id}/versions", paths)
+        self.assertIn("/api/v2/projects/{project_id}/film-bible/snapshots", paths)
+        self.assertIn(
+            "/api/v2/projects/{project_id}/film/shots/{shot_id}/bindings",
+            paths,
+        )
+        self.assertIn("/api/v2/image-generation/provider", paths)
+        self.assertIn(
+            "/api/v2/projects/{project_id}/film/shots/{shot_id}/"
+            "starting-frames/{composition_id}/generations",
+            paths,
+        )
+        self.assertIn(
+            "/api/v2/projects/{project_id}/film/shots/{shot_id}/generations/{job_id}",
+            paths,
+        )
+        self.assertIn(
+            "/api/v2/projects/{project_id}/film/shots/{shot_id}/reference-guidance",
+            paths,
+        )
+        self.assertIn(
+            "/api/v2/projects/{project_id}/film/shots/{shot_id}/"
+            "reference-guidance/{guidance_id}/preview",
+            paths,
+        )
+        self.assertIn(
+            "/api/v2/projects/{project_id}/timeline-renders/provider",
+            paths,
+        )
+        self.assertIn(
+            "/api/v2/projects/{project_id}/timelines/{timeline_id}/renders",
+            paths,
+        )
 
 
 if __name__ == "__main__":

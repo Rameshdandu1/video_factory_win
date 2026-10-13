@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Protocol
 
 from video_app.domain.jobs import GenerationJob, JobStatus
-from video_app.domain.models import BackendOutput, Failure, GenerationResult, Progress
+from video_app.domain.models import (
+    BackendOutput,
+    ConditioningEvidence,
+    Failure,
+    GenerationMode,
+    GenerationResult,
+    Progress,
+)
 
 
 class JobNotFoundError(LookupError):
@@ -21,6 +28,10 @@ class QueueFullError(RuntimeError):
 
 class LeaseLostError(RuntimeError):
     """Raised when a worker no longer owns the claimed job lease."""
+
+
+class IdempotencyConflictError(RuntimeError):
+    """Raised when one idempotency key is reused for different frozen inputs."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +60,7 @@ class JobRepository(Protocol):
         limit: int,
         cursor: str | None,
         status: JobStatus | None,
+        modes: frozenset[GenerationMode] | None = None,
     ) -> JobPage: ...
 
     async def request_cancellation(self, job_id: str, now: datetime) -> GenerationJob: ...
@@ -61,6 +73,8 @@ class JobRepository(Protocol):
         token: str,
         backend: str,
         model_revision: str,
+        supported_models: frozenset[str],
+        supported_modes: frozenset[GenerationMode],
         now: datetime,
         expires_at: datetime,
     ) -> JobLease | None: ...
@@ -80,6 +94,7 @@ class JobRepository(Protocol):
         self,
         lease: JobLease,
         result: GenerationResult,
+        conditioning_evidence: ConditioningEvidence | None,
         now: datetime,
     ) -> GenerationJob: ...
 
@@ -118,6 +133,8 @@ class ArtifactStore(Protocol):
     async def discard_candidate(self, output: BackendOutput) -> None: ...
 
     async def delete(self, storage_key: str) -> None: ...
+
+    def resolve_for_read(self, storage_key: str) -> Path: ...
 
 
 class ArtifactReader(Protocol):

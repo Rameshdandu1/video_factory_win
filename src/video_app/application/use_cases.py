@@ -9,6 +9,7 @@ from video_app.application.ports import (
     ArtifactReader,
     Clock,
     IdentifierFactory,
+    JobNotFoundError,
     JobPage,
     JobRepository,
     RepositoryHealth,
@@ -17,6 +18,7 @@ from video_app.application.ports import (
 from video_app.domain.jobs import GenerationJob, JobStatus
 from video_app.domain.models import (
     DomainValidationError,
+    GenerationMode,
     GenerationRequestDraft,
     GenerationResult,
     ModelCapability,
@@ -78,7 +80,10 @@ class GetJob:
     repository: JobRepository
 
     async def __call__(self, job_id: str) -> GenerationJob:
-        return await self.repository.get(job_id)
+        job = await self.repository.get(job_id)
+        if job.request.mode is not GenerationMode.TEXT_TO_VIDEO:
+            raise JobNotFoundError(job_id)
+        return job
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +92,9 @@ class CancelJob:
     clock: Clock
 
     async def __call__(self, job_id: str) -> GenerationJob:
+        job = await self.repository.get(job_id)
+        if job.request.mode is not GenerationMode.TEXT_TO_VIDEO:
+            raise JobNotFoundError(job_id)
         return await self.repository.request_cancellation(job_id, self.clock.now())
 
 
@@ -103,7 +111,12 @@ class ListJobs:
     ) -> JobPage:
         if not 1 <= limit <= 100:
             raise DomainValidationError("job list limit must be between 1 and 100")
-        return await self.repository.list_page(limit=limit, cursor=cursor, status=status)
+        return await self.repository.list_page(
+            limit=limit,
+            cursor=cursor,
+            status=status,
+            modes=frozenset({GenerationMode.TEXT_TO_VIDEO}),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +134,8 @@ class GetJobOutput:
 
     async def __call__(self, job_id: str) -> JobOutput:
         job = await self.repository.get(job_id)
+        if job.request.mode is not GenerationMode.TEXT_TO_VIDEO:
+            raise JobNotFoundError(job_id)
         if job.result is None:
             raise OutputNotFoundError(job_id)
         try:
