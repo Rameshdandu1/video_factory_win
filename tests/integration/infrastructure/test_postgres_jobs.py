@@ -163,6 +163,23 @@ class PostgresJobRepositoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def asyncTearDown(self) -> None:
+        async with self.engine.begin() as connection:
+            await connection.execute(generation_jobs.delete())
+            await connection.execute(
+                timeline_revisions.delete().where(
+                    timeline_revisions.c.id == "timeline-render-job-test"
+                )
+            )
+            await connection.execute(
+                projects.delete().where(
+                    projects.c.id.in_(
+                        (
+                            "project-rough-cut-job-test",
+                            "project-timeline-render-job-test",
+                        )
+                    )
+                )
+            )
         await self.engine.dispose()
 
     async def _claim(

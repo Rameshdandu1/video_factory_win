@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly script_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+script_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly script_root
 readonly manager="${script_root}/deploy/runpod/runpod_deploy.py"
 readonly setup_lock="/run/video-factory-package-install.lock"
 readonly min_free_kib=$((8 * 1024 * 1024))

@@ -36,6 +36,7 @@ packages = ["src/video_app"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "gpu: requires CUDA, model weights, and explicit opt-in",
   "integration: crosses a process or infrastructure boundary",

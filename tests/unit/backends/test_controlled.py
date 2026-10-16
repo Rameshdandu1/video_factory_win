@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,18 +123,18 @@ class ControlledBackendTests(unittest.IsolatedAsyncioTestCase):
         backend = ControlledVideoBackend(
             runtime(ControlledVideoOperation.VACE_PERFORMANCE_TRANSFER)
         )
+        image = Path("C:/work/approved-frame.png")
+        video = Path("C:/work/trimmed-reference.mp4")
         generated = backend._vace_command(
             request(ControlledVideoOperation.VACE_PERFORMANCE_TRANSFER),
-            Path("C:/work/approved-frame.png"),
-            Path("C:/work/trimmed-reference.mp4"),
+            image,
+            video,
             Path("C:/work/controls"),
             Path("C:/work/output.mp4"),
         )
 
-        self.assertEqual(generated[generated.index("--image") + 1], "C:\\work\\approved-frame.png")
-        self.assertEqual(
-            generated[generated.index("--video") + 1], "C:\\work\\trimmed-reference.mp4"
-        )
+        self.assertEqual(generated[generated.index("--image") + 1], str(image))
+        self.assertEqual(generated[generated.index("--video") + 1], str(video))
         self.assertEqual(generated[generated.index("--task") + 1], "animate_anything")
         self.assertEqual(generated[generated.index("--mode") + 1], "salientbboxtrack")
 
@@ -190,11 +192,15 @@ class ControlledBackendTests(unittest.IsolatedAsyncioTestCase):
                 "video_app.backends.controlled.asyncio.create_subprocess_exec",
                 new=spawn,
             ),
+            patch("video_app.backends.controlled.os.killpg", create=True) as kill_group,
             self.assertRaises(BackendCancelledError),
         ):
             await backend._run(("worker",), context)
 
-        self.assertTrue(process.terminated)
+        if os.name == "nt":
+            self.assertTrue(process.terminated)
+        else:
+            kill_group.assert_called_once_with(process.pid, signal.SIGTERM)
 
 
 if __name__ == "__main__":

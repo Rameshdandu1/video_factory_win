@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 readonly managed_script="/opt/video-factory/current/deploy/runpod/runpod_deploy.py"
-readonly checkout_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/deploy/runpod/runpod_deploy.py"
+checkout_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/deploy/runpod/runpod_deploy.py"
+readonly checkout_script
 
 if [[ -f "${managed_script}" ]]; then
   exec /usr/bin/python3 "${managed_script}" "$@"
