@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import tarfile
 import tempfile
+import threading
 import unittest
 from collections.abc import Mapping, Sequence
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from deploy.runpod.runpod_deploy import (
     SERVICE_NAMES,
@@ -47,6 +51,26 @@ def _write_valid_environment(paths: DeploymentPaths, *, password: str = "valid-p
     content = serialize_environment(demo_environment(paths, password=password, owner_id="owner"))
     paths.env_file.write_text(content, encoding="utf-8")
     return content
+
+
+def _start_http_server(
+    status: int, body: bytes
+) -> tuple[ThreadingHTTPServer, threading.Thread, str]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_arguments: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, f"http://127.0.0.1:{server.server_port}/"
 
 
 class LifecycleManager(DeploymentManager):
@@ -129,6 +153,9 @@ class ExistingInstallManager(DeploymentManager):
     def _validate_postgres_compatibility(self) -> None:
         return
 
+    def _set_directory_owner(self, path: Path, owner: str) -> None:
+        del path, owner
+
     def _prepare_release(self, repository: str, revision: str) -> Path:
         if not repository.endswith("video_factory_win.git") or revision != "a" * 40:
             raise AssertionError("unexpected release request")
@@ -171,6 +198,50 @@ class ResumeInstallManager(ExistingInstallManager):
 class PortConflictManager(DeploymentManager):
     def _listening_ports(self) -> dict[int, str]:
         return {8000: 'users:(("foreign",pid=77,fd=3))'}
+
+
+class DoctorHttpManager(DeploymentManager):
+    def __init__(self, paths: DeploymentPaths, result: dict[str, Any]) -> None:
+        super().__init__(paths)
+        self.result = result
+        self.release = paths.install_root / "release"
+        self.release.mkdir(parents=True)
+
+    def _current_release(self) -> Path:
+        return self.release
+
+    def _validate_checkout(self, release: Path) -> str:
+        if release != self.release:
+            raise AssertionError("unexpected release")
+        return "a" * 40
+
+    def _service_states(self) -> dict[str, str]:
+        return {name: "RUNNING" for name in SERVICE_NAMES}
+
+    def _check_database_authentication(self, values: Mapping[str, str]) -> bool:
+        return bool(values)
+
+    def _schema_status(self, release: Path, values: Mapping[str, str]) -> dict[str, Any]:
+        if release != self.release or not values:
+            raise AssertionError("unexpected schema inputs")
+        return {"state": "current", "heads": ["head"], "current": ["head"]}
+
+    def _listening_ports(self) -> dict[int, str]:
+        return {}
+
+    def _tailscale_status(self) -> dict[str, Any]:
+        return {"daemon": "ready", "authorization": "authorized"}
+
+    def _tailscale_serve_status(self) -> dict[str, Any]:
+        return {"configured": True, "state": "private_https"}
+
+    def _frontend_http_status(self) -> dict[str, Any]:
+        return dict(self.result)
+
+    def _api_http_status(self, url: str) -> dict[str, Any]:
+        if not url.endswith("/api/v1/health"):
+            raise AssertionError("unexpected API health URL")
+        return dict(self.result)
 
 
 class StaticRunner(CommandRunner):
@@ -257,6 +328,101 @@ class RunPodConfigurationTests(unittest.TestCase):
                 else:
                     os.environ["DATABASE_URL"] = old_value
         self.assertEqual(environment["DATABASE_URL"], expected)
+
+
+class RunPodHttpDiagnosticTests(unittest.TestCase):
+    def _probe(
+        self,
+        status: int,
+        body: bytes,
+        *,
+        expected_text: Sequence[str] = (),
+        expected_json: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        server, thread, url = _start_http_server(status, body)
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                manager = DeploymentManager(_paths(Path(temporary)))
+                return manager._http_status(
+                    url, expected_text=expected_text, expected_json=expected_json
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_valid_frontend_and_api_responses_are_healthy(self) -> None:
+        frontend = self._probe(
+            200,
+            b'<html><title>Video Factory</title><div id="root"></div></html>',
+            expected_text=("<title>Video Factory</title>", '<div id="root"></div>'),
+        )
+        api = self._probe(200, b'{"status":"ok"}', expected_json={"status": "ok"})
+        self.assertTrue(frontend["reachable"])
+        self.assertTrue(frontend["healthy"])
+        self.assertTrue(frontend["content_valid"])
+        self.assertTrue(api["reachable"])
+        self.assertTrue(api["healthy"])
+        self.assertTrue(api["content_valid"])
+
+    def test_http_403_and_502_are_reachable_but_unhealthy(self) -> None:
+        for status in (403, 502):
+            with self.subTest(status=status):
+                result = self._probe(status, b'{"status":"ok"}', expected_json={"status": "ok"})
+                self.assertTrue(result["reachable"])
+                self.assertFalse(result["healthy"])
+                self.assertEqual(result["status"], status)
+                self.assertEqual(result["failure"], "unexpected_status")
+
+    def test_connection_refusal_and_timeout_are_transport_failures(self) -> None:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = DeploymentManager(_paths(Path(temporary)))
+            refused = manager._http_status(
+                f"http://127.0.0.1:{port}/", expected_json={"status": "ok"}
+            )
+            with patch(
+                "deploy.runpod.runpod_deploy.urllib.request.urlopen",
+                side_effect=TimeoutError("timed out"),
+            ):
+                timed_out = manager._http_status(
+                    "http://127.0.0.1:1/", expected_json={"status": "ok"}
+                )
+        for result in (refused, timed_out):
+            self.assertFalse(result["reachable"])
+            self.assertFalse(result["healthy"])
+            self.assertEqual(result["failure"], "transport_error")
+
+    def test_http_200_with_wrong_body_is_unhealthy(self) -> None:
+        frontend = self._probe(
+            200,
+            b"<html><title>Proxy error</title></html>",
+            expected_text=("<title>Video Factory</title>", '<div id="root"></div>'),
+        )
+        api = self._probe(200, b'{"status":"degraded"}', expected_json={"status": "ok"})
+        for result in (frontend, api):
+            self.assertTrue(result["reachable"])
+            self.assertFalse(result["healthy"])
+            self.assertFalse(result["content_valid"])
+            self.assertEqual(result["failure"], "unexpected_content")
+
+    def test_doctor_uses_application_health_not_transport_reachability(self) -> None:
+        failure = {
+            "reachable": True,
+            "healthy": False,
+            "status": 502,
+            "content_valid": False,
+            "failure": "unexpected_status",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = _paths(Path(temporary))
+            _write_valid_environment(paths)
+            payload = DoctorHttpManager(paths, failure).doctor_payload()
+        checks = {check["name"]: check for check in payload["checks"]}
+        self.assertEqual(checks["frontend-http"]["state"], "fail")
+        self.assertEqual(checks["api-http"]["state"], "fail")
 
 
 class RunPodLifecycleTests(unittest.TestCase):
@@ -442,6 +608,7 @@ class RunPodConfigurationTemplateTests(unittest.TestCase):
         self.assertIn("autorestart=unexpected", worker)
         self.assertIn("stopasgroup=true", worker)
         self.assertIn("nodaemon=false", config)
+        self.assertIn("unix_socket_permissions=0700", config)
 
     def test_nginx_keeps_api_prefix_and_never_falls_back_for_assets(self) -> None:
         config = (self.repository / "deploy/runpod/nginx.conf.template").read_text(encoding="utf-8")

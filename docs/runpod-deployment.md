@@ -105,9 +105,11 @@ runpodctl status --json
 runpodctl doctor --json
 ```
 
-`status` distinguishes process state, database authentication, schema revision, local HTTP health,
-the `/api` reverse proxy, fake/GPU backend state, Tailscale authorization/Serve state, storage,
-backup evidence, and Pod-level boot integration. `doctor` does not repair or reconfigure anything.
+`status` distinguishes process state, database authentication, schema revision, local HTTP transport
+reachability and application health, the `/api` reverse proxy, fake/GPU backend state, Tailscale
+authorization/Serve state, storage, backup evidence, and Pod-level boot integration. Frontend and
+API probes require HTTP 200 plus the expected application HTML or exact health JSON; an HTTP error
+response is transport-reachable but unhealthy. `doctor` does not repair or reconfigure anything.
 
 Stable command exit codes are `0` success, `3` invalid/missing configuration, `4` ownership or
 state conflict, `5` missing/unsupported dependency, `6` service/readiness failure, `7` backup or
@@ -382,6 +384,7 @@ and must not be inserted into an unknown template blindly.
 | Bash parsing and ShellCheck | LOCAL/CI BUILD MACHINE | Automated |
 | Config parsing, special-character passwords, repeat start/install, port conflicts, archive safety, static isolation | LOCAL/CI BUILD MACHINE | Automated |
 | PostgreSQL migration integration | CI PostgreSQL service | Existing automated job |
+| Installer PostgreSQL ownership, parent traversal, socket, authentication, migrations, repeat install | Disposable root-owned Ubuntu CI filesystem with real non-root `postgres` account | Automated |
 | Clean Ubuntu package installation and Supervisor process recovery | Disposable RUNPOD TERMINAL | Operator must execute |
 | Tailscale login, approval, Serve certificate, actual private URL | RUNPOD TERMINAL | Operator must execute |
 | Peer/MagicDNS/TCP/TLS/browser verification | WINDOWS POWERSHELL | Operator must execute |

@@ -44,6 +44,29 @@ jobs:
       - name: Test deployment package with Python module entrypoint
         run: python -m pytest -q tests/deployment
 
+  runpod-installer-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install application, development tools, and PostgreSQL
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql postgresql-client
+          sudo service postgresql stop
+      - name: Exercise fresh and repeated installer database setup
+        run: |
+          python_bin="$(command -v python)"
+          sudo VIDEO_FACTORY_RUNPOD_INSTALLER_ACCEPTANCE=1 \
+            "${python_bin}" -m pytest -q \
+            tests/deployment/test_runpod_installer_acceptance.py
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 10

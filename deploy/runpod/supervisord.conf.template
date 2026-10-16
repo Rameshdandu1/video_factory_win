@@ -20,7 +20,7 @@ supervisor.rpcinterface_factory=supervisor.rpcinterface:make_main_rpcinterface
 serverurl=unix://@@SUPERVISOR_SOCKET@@
 
 [program:video-factory-postgres]
-command=@@POSTGRES_BIN@@ -D @@POSTGRES_DATA@@ -c listen_addresses=127.0.0.1 -c port=@@POSTGRES_PORT@@ -c unix_socket_directories=@@POSTGRES_SOCKET_DIR@@ -c password_encryption=scram-sha-256
+command=@@POSTGRES_BIN@@ -D @@POSTGRES_DATA@@ -c listen_addresses=127.0.0.1 -c port=@@POSTGRES_PORT@@ -c unix_socket_directories=@@POSTGRES_SOCKET_DIR@@ -c unix_socket_permissions=0700 -c password_encryption=scram-sha-256
 directory=@@STATE_ROOT@@
 user=postgres
 priority=10

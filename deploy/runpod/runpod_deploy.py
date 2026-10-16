@@ -72,6 +72,9 @@ EXIT_DEPENDENCY = 5
 EXIT_SERVICE = 6
 EXIT_BACKUP = 7
 EXIT_NETWORK = 8
+HTTP_PROBE_BODY_LIMIT = 64 * 1024
+FRONTEND_HTTP_MARKERS = ("<title>Video Factory</title>", '<div id="root"></div>')
+API_HEALTH_RESPONSE = {"status": "ok"}
 
 _RUNTIME_CONFIG_CHECK = """\
 from pathlib import Path
@@ -607,13 +610,13 @@ class DeploymentManager:
             (self.paths.install_root, 0o755),
             (self.paths.releases_root, 0o755),
             (self.paths.config_root, 0o750),
-            (self.paths.state_root, 0o750),
+            (self.paths.state_root, 0o710),
             (self.paths.application_data, 0o750),
             (self.paths.backup_root, 0o750),
             (self.paths.tailscale_state, 0o700),
             (self.paths.log_root, 0o750),
-            (self.paths.run_root, 0o750),
-            (self.paths.postgres_socket_dir, 0o775),
+            (self.paths.run_root, 0o710),
+            (self.paths.postgres_socket_dir, 0o700),
             (self.paths.install_root / "nginx", 0o750),
         ):
             if path.exists() and (path.is_symlink() or not path.is_dir()):
@@ -622,6 +625,12 @@ class DeploymentManager:
                 )
             path.mkdir(parents=True, exist_ok=True)
             os.chmod(path, mode)
+        for path in (self.paths.state_root, self.paths.run_root):
+            self._set_directory_owner(path, "root:postgres")
+        self._set_directory_owner(self.paths.postgres_socket_dir, "postgres:postgres")
+
+    def _set_directory_owner(self, path: Path, owner: str) -> None:
+        self.runner.run(("/usr/bin/chown", owner, path))
 
     def _current_release(self) -> Path:
         current = self.paths.current_root
@@ -988,7 +997,7 @@ class DeploymentManager:
         candidate = self.paths.state_root / f".postgres-init-{secrets.token_hex(5)}"
         candidate.mkdir(mode=0o700)
         try:
-            self.runner.run(("/usr/bin/chown", "-R", "postgres:postgres", candidate))
+            self.runner.run(("/usr/bin/chown", "postgres:postgres", candidate))
             self.runner.run(
                 (
                     "/usr/sbin/runuser",
@@ -1565,27 +1574,62 @@ class DeploymentManager:
         status = self._tailscale_status()
         print(status.get("url") or "Tailscale authorized; hostname is not yet available.")
 
-    def _http_status(self, url: str) -> dict[str, Any]:
+    def _http_status(
+        self,
+        url: str,
+        *,
+        expected_text: Sequence[str] = (),
+        expected_json: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         started = time.monotonic()
         try:
             with urllib.request.urlopen(url, timeout=3) as response:
+                body = response.read(HTTP_PROBE_BODY_LIMIT + 1)
+                status = int(response.status)
+                content_valid = len(body) <= HTTP_PROBE_BODY_LIMIT
+                if content_valid and expected_text:
+                    decoded = body.decode("utf-8", errors="replace")
+                    content_valid = all(marker in decoded for marker in expected_text)
+                if content_valid and expected_json is not None:
+                    try:
+                        content_valid = json.loads(body) == expected_json
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        content_valid = False
+                healthy = status == 200 and content_valid
                 return {
                     "reachable": True,
-                    "status": response.status,
+                    "healthy": healthy,
+                    "status": status,
+                    "content_valid": content_valid,
+                    "failure": None
+                    if healthy
+                    else ("unexpected_status" if status != 200 else "unexpected_content"),
                     "latency_ms": round((time.monotonic() - started) * 1000),
                 }
         except urllib.error.HTTPError as error:
             return {
                 "reachable": True,
+                "healthy": False,
                 "status": error.code,
+                "content_valid": False,
+                "failure": "unexpected_status",
                 "latency_ms": round((time.monotonic() - started) * 1000),
             }
         except (OSError, urllib.error.URLError) as error:
             return {
                 "reachable": False,
+                "healthy": False,
                 "status": None,
+                "content_valid": False,
+                "failure": "transport_error",
                 "error": type(error).__name__,
             }
+
+    def _frontend_http_status(self) -> dict[str, Any]:
+        return self._http_status("http://127.0.0.1:5173/", expected_text=FRONTEND_HTTP_MARKERS)
+
+    def _api_http_status(self, url: str) -> dict[str, Any]:
+        return self._http_status(url, expected_json=API_HEALTH_RESPONSE)
 
     def _schema_status(self, release: Path, values: Mapping[str, str]) -> dict[str, Any]:
         try:
@@ -1661,9 +1705,9 @@ class DeploymentManager:
                 "bind": "127.0.0.1:5432",
             },
             "http": {
-                "frontend": self._http_status("http://127.0.0.1:5173/"),
-                "api": self._http_status("http://127.0.0.1:5173/api/v1/health"),
-                "api_direct": self._http_status("http://127.0.0.1:8000/api/v1/health"),
+                "frontend": self._frontend_http_status(),
+                "api": self._api_http_status("http://127.0.0.1:5173/api/v1/health"),
+                "api_direct": self._api_http_status("http://127.0.0.1:8000/api/v1/health"),
                 "bind": "127.0.0.1:5173",
             },
             "tailscale": tailscale,
@@ -1717,8 +1761,8 @@ class DeploymentManager:
         print(f"worker process count: {payload['worker_process_count']}")
         print(f"database authentication: {payload['database']['authentication']}")
         print(f"database schema: {payload['database']['schema']['state']}")
-        print(f"frontend: {payload['http']['frontend']['reachable']}")
-        print(f"api: {payload['http']['api']['reachable']}")
+        print(f"frontend: {payload['http']['frontend']['healthy']}")
+        print(f"api: {payload['http']['api']['healthy']}")
         print(f"tailscale authorization: {payload['tailscale']['authorization']}")
         print(f"private URL: {payload['tailscale'].get('url') or 'unavailable'}")
         print(f"backend: {payload['runtime']['backend']} (demo={payload['runtime']['demo_mode']})")
@@ -1820,14 +1864,18 @@ class DeploymentManager:
         add("external-tcp-443", "not_verified", "test from Windows after authorization")
         add("external-tls", "not_verified", "a local TCP check is not TLS verification")
         add("vite-host-policy", "not_applicable", "production serves a built Nginx bundle")
-        app_http = self._http_status("http://127.0.0.1:5173/")
-        api_http = self._http_status("http://127.0.0.1:5173/api/v1/health")
+        app_http = self._frontend_http_status()
+        api_http = self._api_http_status("http://127.0.0.1:5173/api/v1/health")
         add(
             "frontend-http",
-            "pass" if app_http["reachable"] else "fail",
-            str(app_http.get("status")),
+            "pass" if app_http["healthy"] else "fail",
+            f"status={app_http.get('status')} content_valid={app_http['content_valid']}",
         )
-        add("api-http", "pass" if api_http["reachable"] else "fail", str(api_http.get("status")))
+        add(
+            "api-http",
+            "pass" if api_http["healthy"] else "fail",
+            f"status={api_http.get('status')} content_valid={api_http['content_valid']}",
+        )
         return {
             "checked_at": utc_now(),
             "healthy": not any(check["state"] == "fail" for check in checks),
