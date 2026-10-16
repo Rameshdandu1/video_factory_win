@@ -126,6 +126,12 @@ segments, mixes only explicit audio items, burns an application-authored caption
 publishes one measured MP4. It never runs in the API process or changes rough-cut semantics. See
 ADR-015.
 
+RunPod deployment tooling lives outside the application packages under `deploy/runpod/` and
+`scripts/`. It composes the existing API, worker, PostgreSQL, built frontend, and private access as
+operating-system processes without changing dependency direction or public contracts. Supervisor,
+Nginx, and userspace Tailscale are deployment adapters; they do not become application-layer
+dependencies. See ADR-016.
+
 ## Stable contracts
 
 Contracts documented in `docs/contracts/generation.md` are stable. Renaming fields, changing meanings, or removing states requires a versioned migration and an accepted ADR.
