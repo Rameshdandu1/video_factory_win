@@ -72,7 +72,7 @@ class PostgresAssetRepository:
                             sha256=asset.sha256,
                             rights=asset.rights.value,
                             created_at=asset.created_at,
-                            metadata=None,
+                            metadata=sa.null(),
                             inspector_revision=None,
                             inspected_at=None,
                         )
@@ -164,7 +164,7 @@ class PostgresAssetRepository:
         return _row_to_asset(row)
 
     async def update(self, asset: MediaAsset, *, expected_version: int) -> MediaAsset:
-        metadata = None
+        metadata: object = sa.null()
         if asset.metadata is not None:
             metadata = {
                 "format_name": asset.metadata.format_name,
