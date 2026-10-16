@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  deployment-shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Parse deployment entrypoints
+        shell: bash
+        run: bash -n scripts/runpod-install.sh scripts/runpod-bootstrap.sh scripts/runpodctl
+      - name: Lint deployment entrypoints
+        run: shellcheck scripts/runpod-install.sh scripts/runpod-bootstrap.sh scripts/runpodctl
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 10

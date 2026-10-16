@@ -64,8 +64,9 @@ $env:DATABASE_URL = (Get-Content .env | Where-Object { $_ -like 'DATABASE_URL=*'
 
 The current head includes additive project, asset, timeline, Telugu-film, reusable-library,
 Film Bible, starting-frame composition, I2V/controlled/rough-cut/final-timeline job manifests, and
-reference-guidance migrations through `20261013_0014`. Back up and inventory a
-deployed database before applying it. The application does not run migrations automatically.
+reference-guidance migrations. Alembic derives the active head from the checkout; deployment
+automation never treats a historical revision string as permanent. Back up and inventory a deployed
+database before applying it. The application does not run migrations automatically.
 
 Run the PostgreSQL integration tests while `DATABASE_URL` remains set:
 
@@ -112,6 +113,18 @@ npm run dev
 ```
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite forwards relative `/api` requests to the local FastAPI server at `127.0.0.1:8000`; this development proxy does not enable or require backend CORS.
+
+## RunPod demo deployment
+
+The repository includes a repeatable Ubuntu RunPod deployment for the existing fake-backend demo:
+local PostgreSQL, one API, one worker, built React assets behind loopback Nginx, Supervisor, and
+private Tailscale Serve. It does not provision or make ephemeral storage persistent, does not modify
+ComfyUI/Jupyter startup, and does not qualify real GPU inference.
+
+Use the complete [RunPod deployment and recovery guide](docs/runpod-deployment.md). The operational
+entry point after installation is `runpodctl`; use `runpodctl --help`, `runpodctl status`, and
+`runpodctl doctor` rather than starting extra workers in terminals. The deployment decision and
+boundaries are recorded in [ADR-016](docs/decisions/ADR-016-runpod-ephemeral-deployment.md).
 
 ## Run the pinned Wan2.1 worker
 

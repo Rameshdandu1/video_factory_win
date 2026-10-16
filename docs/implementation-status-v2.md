@@ -402,3 +402,16 @@ network volumes are preferable when data must survive Pod replacement.
 - Added offline house/temple, one-shot replacement, restart derivation, API/client, and browser
   regressions. PostgreSQL execution and authorized real house/temple media remain pending, so no
   90/180/900-second or film-quality acceptance is claimed.
+
+## 2026-10-16 RunPod deployment and recovery evidence
+
+| Code | Automated tests | Runtime configured | Real media/GPU verified |
+| --- | --- | --- | --- |
+| Implemented: full-SHA bootstrap/install, Supervisor, loopback PostgreSQL/API/Nginx, userspace Tailscale Serve, status/doctor/logs, explicit update, consistent backup, guarded restore, fake smoke test, credential rotation | Local pass: Ruff format/lint, strict mypy over 114 files, 186 Python tests passed; 16 environment tests skipped and 3 GPU tests deselected. Frontend Prettier/ESLint/typecheck, 87 tests, and production build passed. Bash syntax passed; ShellCheck is enforced in CI. | Not configured on a RunPod in this environment. Pod boot integration is explicitly `NOT_CONFIGURED`; Tailscale login/Serve/TLS and PostgreSQL package installation need disposable-Pod verification. | No. Demo remains `VIDEO_APP_BACKEND=fake`; no model weights, CUDA job, Telugu media, or 90/180/900-second acceptance was run. |
+
+The deployment unit suite covers strict literal configuration, special-character database
+passwords, stale terminal database URL replacement, repeated install/start preservation, one worker,
+foreign port refusal, Supervisor/Nginx boundaries, exact Vite hostname allowlisting, distinct
+Tailscale daemon/login states, secret redaction, archive traversal/link rejection, checksum
+validation, and sample-media recovery. These offline checks do not substitute for a clean Ubuntu
+RunPod install, a real PostgreSQL restore rehearsal, or external Tailscale browser evidence.
